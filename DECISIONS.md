@@ -97,7 +97,7 @@ cost of one file.
 
 ---
 
-## ADR-003 — `syn` 3.x, Rust edition 2024, MSRV 1.85
+## ADR-003 — `syn` 3.x, Rust edition 2024, MSRV 1.88
 
 **Date:** 2026-08-11
 **Status:** Accepted
@@ -111,8 +111,14 @@ that Wheeltap depends on are unchanged in shape.
 
 ### Decision
 
-Depend on `syn` 3.x. Use Rust edition 2024 with an MSRV of 1.85, enforced by a
-dedicated CI job.
+Depend on `syn` 3.x. Use Rust edition 2024 with an MSRV of **1.88**, enforced by
+a dedicated CI job.
+
+> **Amended 2026-08-11.** This ADR originally claimed an MSRV of 1.85, reasoning
+> only about the edition. That was wrong: `ignore` 0.4.30 uses let-chains, which
+> stabilised in 1.88, so the workspace does not build on 1.85 at all. The floor
+> was measured by building on successive toolchains rather than inferred. The
+> edition rationale below stands; the number does not come from it.
 
 ### Rationale
 
@@ -120,15 +126,17 @@ dedicated CI job.
   dependency invites the obvious question at review time.
 - `syn` 3 parses newer syntax that real programs will increasingly contain;
   on 2.x those files would fail to parse and silently reduce coverage.
-- Edition 2024 has been stable since Rust 1.85 (February 2025), comfortably
-  older than any toolchain a contributor is likely to run.
+- Edition 2024 has been stable since Rust 1.85 (February 2025). The effective
+  floor is 1.88 (June 2025), set by a dependency rather than by our own code —
+  still comfortably older than any toolchain a contributor is likely to run.
 
 ### Consequences
 
 - Anything in the build spec that assumes `syn` 2.x API details is read as
   intent, not as literal API.
 - The MSRV is a published promise; the `msrv` CI job removes `rust-toolchain.toml`
-  before building, or the pin would silently defeat the check.
+  before building, or the pin would silently defeat the check. It is measured,
+  not assumed, and it is re-measured whenever a dependency is added or bumped.
 
 ### Alternatives rejected
 

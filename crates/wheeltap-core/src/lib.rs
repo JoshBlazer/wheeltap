@@ -74,9 +74,14 @@ pub struct Initialize<'info> {
         assert_eq!(item.ident, "Initialize");
 
         let field = item.fields.iter().next().expect("one field");
-        let at = span_start(field.span());
-        assert_eq!(at.line, 5, "field is on the fifth line of the fixture");
         assert_eq!(field.attrs.len(), 1, "the #[account] attribute survives");
+
+        // A field's own span covers its attributes, so it starts at
+        // `#[account(mut)]` on line 4 rather than at the declaration. Findings
+        // about a field want the name, so detectors report `field.ident`.
+        assert_eq!(span_start(field.span()).line, 4);
+        let ident = field.ident.as_ref().expect("named field");
+        assert_eq!(span_start(ident.span()), LineCol { line: 5, column: 9 });
     }
 
     /// A file that does not parse must surface as a recoverable error, never a
@@ -89,7 +94,10 @@ pub struct Initialize<'info> {
 
     #[test]
     fn short_hash_is_deterministic_and_field_separated() {
-        assert_eq!(short_hash(&["WT001", "lib.rs"]), short_hash(&["WT001", "lib.rs"]));
+        assert_eq!(
+            short_hash(&["WT001", "lib.rs"]),
+            short_hash(&["WT001", "lib.rs"])
+        );
         assert_ne!(short_hash(&["ab", "c"]), short_hash(&["a", "bc"]));
         assert_eq!(short_hash(&["WT001"]).len(), 16);
     }
