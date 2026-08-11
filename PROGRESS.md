@@ -95,7 +95,14 @@ sudo apt-get install -y build-essential
 carry no AI co-authorship trailer, by explicit instruction.
 
 ~~**Q3 — Repository URL.**~~ **Resolved 2026-08-11.**
-`https://github.com/joshblazer/wheeltap`. No remote is configured yet.
+`https://github.com/JoshBlazer/wheeltap` — public, and configured as `origin`.
+Nothing pushed yet: this machine has no GitHub credentials, so the first push
+needs `gh auth login` (see Q8).
+
+**Q8 — GitHub authentication.** `gh` 2.97.0 is installed at `~/.local/bin/gh`,
+but no credentials exist on this machine — no token, no SSH key, no credential
+helper. `gh auth login` is interactive and must be run by hand before the first
+push.
 
 The four questions the build spec (§10) requires answering before Phase 3:
 
