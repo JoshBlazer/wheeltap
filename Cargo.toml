@@ -1,0 +1,68 @@
+[package]
+name = "wheeltap"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Static analysis for Rust-based Solana smart contracts (Anchor)"
+readme = "README.md"
+keywords = ["solana", "anchor", "security", "static-analysis", "sast"]
+categories = ["development-tools", "command-line-utilities"]
+
+# The root package is the installable binary, so that both
+#   cargo install --path .
+#   cargo install wheeltap
+# resolve to this crate. The analysis lives in the workspace libraries below.
+[[bin]]
+name = "wheeltap"
+path = "src/main.rs"
+
+[dependencies]
+wheeltap-cli = { version = "0.1.0", path = "crates/wheeltap-cli" }
+
+[workspace]
+members = ["crates/*"]
+# Fixtures and vendored corpus programs carry their own manifests and are inputs
+# to the analyser, not members of this build. Some of them do not compile by
+# design.
+exclude = ["fixtures"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/joshblazer/wheeltap"
+
+[workspace.dependencies]
+wheeltap-core = { version = "0.1.0", path = "crates/wheeltap-core" }
+wheeltap-rules = { version = "0.1.0", path = "crates/wheeltap-rules" }
+wheeltap-report = { version = "0.1.0", path = "crates/wheeltap-report" }
+
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ignore = "0.4"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+syn = { version = "3", features = ["full", "extra-traits", "visit", "parsing"] }
+thiserror = "2"
+toml = "1"
+
+insta = { version = "1", features = ["json"] }
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[lints]
+workspace = true
+
+[profile.release]
+lto = "thin"

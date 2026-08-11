@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# insta writes these when a snapshot changes; review and accept, never commit.
+**/*.snap.new
+
+# Zone.Identifier files are WSL artefacts of files copied from Windows.
+*:Zone.Identifier

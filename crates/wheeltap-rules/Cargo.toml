@@ -1,0 +1,16 @@
+[package]
+name = "wheeltap-rules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Detector implementations for Wheeltap"
+
+[dependencies]
+wheeltap-core.workspace = true
+
+syn.workspace = true
+
+[lints]
+workspace = true

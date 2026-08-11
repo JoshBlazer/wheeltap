@@ -1,0 +1,18 @@
+[package]
+name = "wheeltap-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line interface for Wheeltap"
+
+[dependencies]
+wheeltap-core.workspace = true
+wheeltap-report.workspace = true
+wheeltap-rules.workspace = true
+
+clap.workspace = true
+
+[lints]
+workspace = true
