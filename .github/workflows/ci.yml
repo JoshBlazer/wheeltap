@@ -18,7 +18,7 @@ jobs:
     name: fmt, clippy, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -43,14 +43,22 @@ jobs:
     name: minimum supported Rust version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Read the MSRV from the workspace manifest so it cannot drift from the
-      # version we claim to support.
+      # version we claim to support. Match only the quoted assignment: the
+      # [package] section inherits with `rust-version.workspace = true`, which
+      # a looser pattern picks up first and passes downstream as a toolchain
+      # name. Fail loudly rather than resolving to something meaningless.
       - name: Resolve MSRV
         id: msrv
         run: |
-          msrv=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)
+          msrv=$(grep -oP '^rust-version\s*=\s*"\K[^"]+' Cargo.toml | head -1)
+          if [[ ! $msrv =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error::could not parse an MSRV from Cargo.toml (got '$msrv')"
+            exit 1
+          fi
+          echo "Resolved MSRV: $msrv"
           echo "version=$msrv" >> "$GITHUB_OUTPUT"
 
       - uses: dtolnay/rust-toolchain@master
