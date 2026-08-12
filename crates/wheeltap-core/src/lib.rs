@@ -8,15 +8,23 @@
 //! - [`model`] turns the AST into an Anchor-aware [`model::ProgramContext`].
 //! - [`summary`] projects that model onto serialisable data for
 //!   `wheeltap debug-context` and snapshot tests.
+//! - [`engine`] runs [`Detector`]s over the model and assembles a report.
+//! - [`finding`] defines what a detector reports, including the deterministic
+//!   identity that makes run-over-run baselines possible.
 //!
-//! Detectors and findings arrive in Phase 2.
+//! The detectors themselves live in `wheeltap-rules`, which depends on this
+//! crate; the engine takes them as a parameter so the dependency stays one-way.
 
 pub mod diag;
+pub mod engine;
+pub mod finding;
 pub mod loader;
 pub mod model;
 pub mod source;
 pub mod summary;
 
+pub use engine::{Detector, RuleMetadata};
+pub use finding::{Confidence, Finding, FindingId, Severity};
 pub use model::ProgramContext;
 
 use sha2::{Digest, Sha256};

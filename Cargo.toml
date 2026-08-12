@@ -24,6 +24,8 @@ wheeltap-cli = { version = "0.1.0", path = "crates/wheeltap-cli" }
 # Integration tests live in `tests/` and exercise the analysis directly.
 [dev-dependencies]
 wheeltap-core.workspace = true
+wheeltap-report.workspace = true
+wheeltap-rules.workspace = true
 insta.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

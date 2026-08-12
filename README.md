@@ -8,10 +8,10 @@ findings as JSON, Markdown, or SARIF.
 > train striking each wheel with a long hammer, listening for the dull note that
 > betrayed a crack invisible from the outside.
 
-> ⚠️ **Under construction — Phase 2 of 6.** The analyser is built and models
-> real Anchor programs (try `wheeltap debug-context`), but no detectors are
-> implemented yet, so it does not report findings. `PROGRESS.md` is the live
-> status. This notice comes out at v1.0.0.
+> ⚠️ **Under construction — Phase 3 of 6.** Three of twelve detectors are
+> implemented and `wheeltap scan` reports findings as JSON. Markdown and SARIF
+> output, suppression, and baselines arrive in Phase 4. `PROGRESS.md` is the
+> live status. This notice comes out at v1.0.0.
 
 ## The problem
 
@@ -57,27 +57,38 @@ $ cargo install wheeltap
 $ wheeltap scan ./programs
 ```
 
-What works today is the analyser. Build from source and inspect the model
-Wheeltap builds of a program:
+Building from source works today:
 
 ```console
 $ cargo build --release
-$ ./target/release/wheeltap debug-context fixtures/corpus/escrow
-9 files scanned, 313 lines
-
-program escrow (programs/escrow/src/lib.rs:15)
-  make_offer  L18 -> MakeOffer
-  take_offer  L28 -> TakeOffer
-
-accounts TakeOffer (programs/escrow/src/instructions/take_offer.rs:16)
-  taker   Signer<'info>          [mut]
-  maker   SystemAccount<'info>   [mut]
-  offer   Account<'info, Offer>  [mut, close = maker, has_one = maker, seeds = [...], bump = offer.bump]
-  ...
+$ ./target/release/wheeltap scan fixtures/vulnerable
 ```
 
-Add `--json` for the machine-readable form. It models a 73,000-line production
-protocol in 0.36 seconds.
+```json
+{
+  "schema": "1.0",
+  "summary": { "files_scanned": 3, "findings": 10,
+               "by_severity": [{"severity": "critical", "count": 2},
+                               {"severity": "high", "count": 8}] },
+  "findings": [
+    {
+      "id": "2d70e5e62f325c65",
+      "rule": "WT001",
+      "severity": "critical",
+      "confidence": "high",
+      "file": "WT001_missing_signer/vault.rs",
+      "line": 37,
+      "item_path": "Withdraw.authority",
+      "message": "`Withdraw.authority` is verified by a `has_one` constraint but is never required to sign, and no account in `Withdraw` signs at all. The constraint proves which account this is; it does not prove the holder authorised anything.",
+      "snippet": "    pub authority: AccountInfo<'info>,"
+    }
+  ]
+}
+```
+
+Exit codes are `0` clean, `1` findings at or above `--fail-on`, `2` internal
+error. `wheeltap debug-context <path>` prints the parsed program model, which is
+how you find out whether a missing finding is the rule's fault or the parser's.
 
 ## Detectors
 

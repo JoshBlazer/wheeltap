@@ -19,3 +19,20 @@ fn escrow_context_model() {
 
     insta::assert_json_snapshot!("escrow_context", summary);
 }
+
+/// The full JSON report for the vulnerable corpus.
+///
+/// This is the output a consumer parses and `--baseline` reads back, so its
+/// exact shape is the contract. A diff here means the report changed; the
+/// finding identities in it should change only when the fixtures do.
+#[test]
+fn vulnerable_corpus_json_report() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/vulnerable");
+    let report = wheeltap_core::engine::run(&ProgramContext::scan(&path), &wheeltap_rules::all());
+
+    let json: serde_json::Value =
+        serde_json::from_str(&wheeltap_report::json::render(&report).expect("render"))
+            .expect("valid JSON");
+
+    insta::assert_json_snapshot!("vulnerable_report", json);
+}

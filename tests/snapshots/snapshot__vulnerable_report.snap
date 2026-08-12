@@ -1,0 +1,199 @@
+---
+source: tests/snapshot.rs
+expression: json
+---
+{
+  "diagnostics": [],
+  "findings": [
+    {
+      "column": 9,
+      "confidence": "high",
+      "file": "WT001_missing_signer/vault.rs",
+      "id": "2d70e5e62f325c65",
+      "item_path": "Withdraw.authority",
+      "line": 37,
+      "message": "`Withdraw.authority` is verified by a `has_one` constraint but is never required to sign, and no account in `Withdraw` signs at all. The constraint proves which account this is; it does not prove the holder authorised anything. Public keys are public, so any caller can pass this one.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/signer-auth",
+        "https://github.com/coral-xyz/sealevel-attacks"
+      ],
+      "remediation": "Type the account as `Signer<'info>`. If it must stay an `AccountInfo`, require the signature explicitly with `#[account(signer)]` or `constraint = authority.is_signer`.",
+      "rule": "WT001",
+      "severity": "critical",
+      "snippet": "    pub authority: AccountInfo<'info>,"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT002_missing_owner/oracle.rs",
+      "id": "ffe1e9d53c4e3354",
+      "item_path": "Borrow.oracle",
+      "line": 44,
+      "message": "`Borrow.oracle` is an unvalidated account whose data is deserialised in `borrow` without establishing the owning program. An attacker can pass an account owned by their own program with any contents they like.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/owner-checks",
+        "https://github.com/coral-xyz/sealevel-attacks"
+      ],
+      "remediation": "Use `Account<'info, T>`, which verifies the owner and discriminator before the handler runs. If the account must stay an `AccountInfo`, pin it with `#[account(owner = expected::ID)]` or assert `*account.owner` before reading its data.",
+      "rule": "WT002",
+      "severity": "critical",
+      "snippet": "    pub oracle: AccountInfo<'info>,"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT001_missing_signer/vault.rs",
+      "id": "52995203d771434d",
+      "item_path": "vault::withdraw",
+      "line": 25,
+      "message": "`**vault.to_account_info().try_borrow_mut_lamports()? -= a...` in `withdraw` uses `-=` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/overflow-underflow",
+        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+      ],
+      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
+      "rule": "WT003",
+      "severity": "high",
+      "snippet": "        **vault.to_account_info().try_borrow_mut_lamports()? -= amount;"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT001_missing_signer/vault.rs",
+      "id": "ef63731e8172fae2",
+      "item_path": "vault::withdraw",
+      "line": 26,
+      "message": "`**ctx.accounts.destination.try_borrow_mut_lamports()? += ...` in `withdraw` uses `+=` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/overflow-underflow",
+        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+      ],
+      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
+      "rule": "WT003",
+      "severity": "high",
+      "snippet": "        **ctx.accounts.destination.try_borrow_mut_lamports()? += amount;"
+    },
+    {
+      "column": 24,
+      "confidence": "medium",
+      "file": "WT003_unchecked_arithmetic/staking.rs",
+      "id": "d2c5e1a8cb484e2e",
+      "item_path": "staking::deposit",
+      "line": 23,
+      "message": "`stake.amount + amount` in `deposit` uses `+` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/overflow-underflow",
+        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+      ],
+      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
+      "rule": "WT003",
+      "severity": "high",
+      "snippet": "        stake.amount = stake.amount + amount;"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT003_unchecked_arithmetic/staking.rs",
+      "id": "edb68547df2c0203",
+      "item_path": "staking::deposit",
+      "line": 24,
+      "message": "`stake.total_deposited += amount` in `deposit` uses `+=` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/overflow-underflow",
+        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+      ],
+      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
+      "rule": "WT003",
+      "severity": "high",
+      "snippet": "        stake.total_deposited += amount;"
+    },
+    {
+      "column": 29,
+      "confidence": "medium",
+      "file": "WT003_unchecked_arithmetic/staking.rs",
+      "id": "8855ca683806d7ee",
+      "item_path": "staking::deposit",
+      "line": 27,
+      "message": "`pool.total_staked + amount` in `deposit` uses `+` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/overflow-underflow",
+        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+      ],
+      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
+      "rule": "WT003",
+      "severity": "high",
+      "snippet": "        pool.total_staked = pool.total_staked + amount;"
+    },
+    {
+      "column": 23,
+      "confidence": "medium",
+      "file": "WT003_unchecked_arithmetic/staking.rs",
+      "id": "4d4451207675e9ee",
+      "item_path": "staking::claim",
+      "line": 36,
+      "message": "`stake.amount * ctx.accounts.pool.reward_rate * elapsed as...` in `claim` uses `*` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/overflow-underflow",
+        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+      ],
+      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
+      "rule": "WT003",
+      "severity": "high",
+      "snippet": "        let rewards = stake.amount * ctx.accounts.pool.reward_rate * elapsed as u64;"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT003_unchecked_arithmetic/staking.rs",
+      "id": "a7d974c1d5c33e83",
+      "item_path": "staking::claim",
+      "line": 38,
+      "message": "`stake.pending_rewards += rewards` in `claim` uses `+=` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/overflow-underflow",
+        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+      ],
+      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
+      "rule": "WT003",
+      "severity": "high",
+      "snippet": "        stake.pending_rewards += rewards;"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT003_unchecked_arithmetic/staking.rs",
+      "id": "22ba41310ec76064",
+      "item_path": "staking::claim",
+      "line": 41,
+      "message": "`ctx.accounts.pool.remaining_rewards -= rewards` in `claim` uses `-=` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/overflow-underflow",
+        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+      ],
+      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
+      "rule": "WT003",
+      "severity": "high",
+      "snippet": "        ctx.accounts.pool.remaining_rewards -= rewards;"
+    }
+  ],
+  "schema": "1.0",
+  "summary": {
+    "by_severity": [
+      {
+        "count": 2,
+        "severity": "critical"
+      },
+      {
+        "count": 8,
+        "severity": "high"
+      }
+    ],
+    "files_scanned": 3,
+    "findings": 10,
+    "lines_scanned": 198
+  },
+  "tool": {
+    "name": "wheeltap",
+    "version": "0.1.0"
+  }
+}

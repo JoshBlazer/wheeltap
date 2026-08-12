@@ -68,15 +68,62 @@ so it is tracked as a first-class number rather than left implicit.
 
 ## False-positive rate
 
-_Phase 3 onward._ Every finding on the corpus is triaged by hand once and the
-verdict recorded. Rate is reported per detector, because an aggregate number
-hides the one rule that is ruining the experience.
+Every finding on the corpus is triaged by hand and the verdict recorded. The
+rate is reported per detector, because an aggregate hides the one rule that is
+ruining the experience.
 
-| Rule | Findings on corpus | True positive | False positive | Rate |
+**WT001–WT003, measured over 76,381 lines of third-party code:**
+
+| Rule | Findings | True positive | False positive | Precision |
 |---|---|---|---|---|
+| WT001 | 0 | 0 | 0 | — |
+| WT002 | 0 | 0 | 0 | — |
+| WT003 | 6 | 0 | 6 | 0% |
+| **Total** | **6** | **0** | **6** | **0%** |
 
-The safe fixture corpus is a separate, absolute gate: **no safe fixture may be
-flagged by any rule.** That is a build failure, not a statistic.
+Zero true positives on this corpus is the expected result and not a
+disappointment: `escrow` is a reference implementation, `anchor-misc` is
+Anchor's own test suite, and `drift` is audited production code. A tool that
+reported genuine criticals here would more likely be wrong than lucky. What the
+corpus measures is the **noise floor**, and six findings across 76,000 lines is
+the number that matters.
+
+### Every corpus finding, triaged
+
+| # | Rule | Location | Code | Verdict |
+|---|---|---|---|---|
+| 1 | WT003 | `drift` `if_staker.rs:346` | `transfer_config.current_epoch_transfer += shares` | **FP** — bounded by `validate_transfer(shares)?` two lines above. The check is in a called method, which is the documented intraprocedural limit (ADR-001). |
+| 2 | WT003 | `drift` `user.rs:3648` | `**authority.to_account_info().try_borrow_mut_lamports()? += reclaim_amount` | **FP** — lamport balances are bounded by total SOL supply, so this addition cannot reach `u64::MAX`. |
+| 3–6 | WT003 | `anchor-misc` `misc/lib.rs:285-286`, `misc-optional/lib.rs:296,302` | `**data.try_borrow_mut_lamports()? -= 1` | **FP** — Anchor's own test program moving one lamport. An underflow would be caught by the runtime's lamport-conservation check before it could do harm. |
+
+All six are one pattern: **raw lamport arithmetic**. That is a deliberate
+retained cost. `lamports` stays in the value-word list because manual lamport
+transfers that underflow are a genuine bug class, and the alternative — dropping
+the word — would trade six documented false positives for an entire silent
+class of misses.
+
+### What was tuned out, and what it cost
+
+Two false-positive classes were found by running against the corpus and removed
+by tightening the rules rather than by adjusting fixtures:
+
+| Removed | Findings eliminated | What it cost |
+|---|---|---|
+| WT001 matching on authority-like **names** alone | 66 | The `known_gaps/WT001_unreferenced_admin` case — a real vulnerability now missed. |
+| WT002 treating `load`/`load_mut`/`load_init` as raw reads | 18 | Nothing measurable. These are `AccountLoader`'s validating API. |
+
+The 66 broke down as `mint_authority`/`freeze_authority` on `init` — the
+authority being *assigned to a new mint*, not one authorising the call — and
+drift's `drift_signer`, a program-derived signer the program signs for itself.
+Reporting 66 criticals on correct code to catch one true positive is a bad
+trade, and the true positive is documented in `fixtures/known_gaps/` rather than
+quietly dropped.
+
+### The absolute gate
+
+The safe fixture corpus is not a statistic but a build failure: **no safe
+fixture may be flagged by any rule**, enforced globally across every detector in
+`tests/fixtures.rs`. It currently passes with zero findings.
 
 ## Validation against a published audit
 

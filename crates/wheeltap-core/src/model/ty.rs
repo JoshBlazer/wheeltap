@@ -252,13 +252,21 @@ pub fn render_stream(stream: &proc_macro2::TokenStream) -> String {
             (None, _) => false,
             // A Joint punct is glued to the next token by construction.
             (Some(TokenTree::Punct(p)), _) if p.spacing() == Spacing::Joint => false,
-            // Nothing takes a space before `.` or `:`.
-            _ if is_punct(Some(token), ".:") => false,
+            // Nothing takes a space before `.`, `:`, or the `?` operator.
+            _ if is_punct(Some(token), ".:?") => false,
             // Field access closes up on both sides: `vault.owner`.
             _ if is_punct(prev, ".") => false,
             // A `::` closes up, but a lone `:` does not, so that a path reads
             // `MyError::Unauthorised` while a binding still reads `id: u64`.
             _ if is_punct(prev, ":") && is_punct(before_prev, ":") => false,
+            // `**account.try_borrow_mut_lamports()?` — the double dereference
+            // is ubiquitous in Solana code. A lone `*` still spaces, because
+            // there is no way to tell a prefix deref from a multiplication.
+            _ if is_punct(prev, "*")
+                && (is_punct(Some(token), "*") || is_punct(before_prev, "*")) =>
+            {
+                false
+            }
             // No space before a comma or semicolon; the space goes after.
             _ if is_punct(Some(token), ",;") => false,
             // Generic argument lists read as one unit: `Account<'info, Vault>`.

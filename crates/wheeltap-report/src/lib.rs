@@ -1,5 +1,7 @@
 //! Output formats: JSON (Phase 2), Markdown and SARIF 2.1.0 (Phase 4).
 
+pub mod json;
+
 /// The output formats Wheeltap emits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {

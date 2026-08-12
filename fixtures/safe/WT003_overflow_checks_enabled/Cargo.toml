@@ -1,0 +1,25 @@
+# WT003 safe — this project turns on overflow checks.
+#
+# Solana programs ship as release builds, where Rust wraps on overflow by
+# default. That default is what makes raw `+` on a balance dangerous. A project
+# that sets `overflow-checks = true` has removed the hazard: arithmetic that
+# would wrap panics instead, and a panicking instruction aborts the transaction
+# rather than corrupting state.
+#
+# The build spec is explicit that WT003 must respect this. A tool that reports
+# unchecked arithmetic to a team who already enabled the check is reporting
+# something that cannot happen.
+
+[package]
+name = "overflow-checked-program"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+anchor-lang = "0.31"
+
+[profile.release]
+overflow-checks = true

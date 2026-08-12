@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use wheeltap_core::ProgramContext;
 use wheeltap_core::summary::{AccountsSummary, ContextSummary, ProgramSummary, StateSummary};
 
-use crate::{EXIT_CLEAN, EXIT_ERROR};
+use crate::{EXIT_CLEAN, EXIT_ERROR, write_failure};
 
 pub fn run(path: &Path, json: bool) -> ExitCode {
     if !path.exists() {
@@ -61,19 +61,6 @@ fn emit(out: &mut impl Write, text: &str) -> io::Result<()> {
         writeln!(out, "{}", line.trim_end())?;
     }
     out.flush()
-}
-
-/// Decide the exit code for a failed write.
-///
-/// `wheeltap ... | head` closes the pipe as soon as it has what it wants. That
-/// is the reader's choice, not our error, and it must not read as a crash —
-/// which is exactly what `println!` would do, since it panics on `EPIPE`.
-fn write_failure(err: &io::Error) -> ExitCode {
-    if err.kind() == io::ErrorKind::BrokenPipe {
-        return ExitCode::from(EXIT_CLEAN);
-    }
-    eprintln!("wheeltap: could not write output: {err}");
-    ExitCode::from(EXIT_ERROR)
 }
 
 /// Render the model as text.

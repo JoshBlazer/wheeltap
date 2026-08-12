@@ -9,11 +9,14 @@
 //! | 2    | internal error: Wheeltap could not complete the scan |
 
 mod debug_context;
+mod scan;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use wheeltap_core::finding::Severity;
+use wheeltap_report::Format;
 
 /// Scan completed and found nothing at or above the failure threshold.
 pub const EXIT_CLEAN: u8 = 0;
@@ -40,6 +43,18 @@ enum Command {
     Scan {
         /// Directory or file to scan.
         path: PathBuf,
+
+        /// Output format.
+        #[arg(long, default_value = "json")]
+        format: Format,
+
+        /// Do not report findings below this severity.
+        #[arg(long, value_name = "SEVERITY", default_value = "info")]
+        severity_threshold: Severity,
+
+        /// Exit 1 when a finding at or above this severity is reported.
+        #[arg(long, value_name = "SEVERITY", default_value = "low")]
+        fail_on: Severity,
     },
     /// Print the parsed program model for a path, for debugging the analyser.
     DebugContext {
@@ -51,16 +66,36 @@ enum Command {
     },
 }
 
+/// Decide the exit code for a failed write to stdout.
+///
+/// `wheeltap ... | head` closes the pipe as soon as it has what it wants. That
+/// is the reader's choice, not our error, and it must not read as a crash —
+/// which is exactly what `println!` would do, since it panics on `EPIPE`.
+pub(crate) fn write_failure(err: &std::io::Error) -> ExitCode {
+    if err.kind() == std::io::ErrorKind::BrokenPipe {
+        return ExitCode::from(EXIT_CLEAN);
+    }
+    eprintln!("wheeltap: could not write output: {err}");
+    ExitCode::from(EXIT_ERROR)
+}
+
 /// Parse arguments and run. Returns the process exit code.
 #[must_use]
 pub fn run() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Scan { .. } => {
-            eprintln!("wheeltap: `scan` is not implemented yet (arrives in Phase 2).");
-            ExitCode::from(EXIT_ERROR)
-        }
+        Command::Scan {
+            path,
+            format,
+            severity_threshold,
+            fail_on,
+        } => scan::run(&scan::Options {
+            path: &path,
+            format,
+            severity_threshold,
+            fail_on,
+        }),
         Command::DebugContext { path, json } => debug_context::run(&path, json),
     }
 }
