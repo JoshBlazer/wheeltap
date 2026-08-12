@@ -1,0 +1,325 @@
+---
+source: tests/snapshot.rs
+expression: summary
+---
+{
+  "files": {
+    "scanned": 9,
+    "lines": 313
+  },
+  "programs": [
+    {
+      "name": "escrow",
+      "file": "programs/escrow/src/lib.rs",
+      "line": 15,
+      "entrypoints": [
+        "make_offer",
+        "take_offer"
+      ]
+    }
+  ],
+  "handlers": [
+    {
+      "name": "send_offered_tokens_to_vault",
+      "path": "send_offered_tokens_to_vault",
+      "accounts": "MakeOffer",
+      "accounts_resolved": true,
+      "file": "programs/escrow/src/instructions/make_offer.rs",
+      "line": 57
+    },
+    {
+      "name": "save_offer",
+      "path": "save_offer",
+      "accounts": "MakeOffer",
+      "accounts_resolved": true,
+      "file": "programs/escrow/src/instructions/make_offer.rs",
+      "line": 72
+    },
+    {
+      "name": "send_wanted_tokens_to_maker",
+      "path": "send_wanted_tokens_to_maker",
+      "accounts": "TakeOffer",
+      "accounts_resolved": true,
+      "file": "programs/escrow/src/instructions/take_offer.rs",
+      "line": 77
+    },
+    {
+      "name": "withdraw_and_close_vault",
+      "path": "withdraw_and_close_vault",
+      "accounts": "TakeOffer",
+      "accounts_resolved": true,
+      "file": "programs/escrow/src/instructions/take_offer.rs",
+      "line": 88
+    },
+    {
+      "name": "make_offer",
+      "path": "escrow::make_offer",
+      "program": "escrow",
+      "accounts": "MakeOffer",
+      "accounts_resolved": true,
+      "file": "programs/escrow/src/lib.rs",
+      "line": 18
+    },
+    {
+      "name": "take_offer",
+      "path": "escrow::take_offer",
+      "program": "escrow",
+      "accounts": "TakeOffer",
+      "accounts_resolved": true,
+      "file": "programs/escrow/src/lib.rs",
+      "line": 28
+    }
+  ],
+  "accounts": [
+    {
+      "name": "MakeOffer",
+      "path": "MakeOffer",
+      "file": "programs/escrow/src/instructions/make_offer.rs",
+      "line": 15,
+      "instruction_args": "id: u64",
+      "fields": [
+        {
+          "name": "maker",
+          "type": "Signer<'info>",
+          "kind": "Signer",
+          "unchecked": false,
+          "constraints": [
+            "mut"
+          ],
+          "line": 17
+        },
+        {
+          "name": "token_mint_a",
+          "type": "InterfaceAccount<'info, Mint>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "constraints": [
+            "mint::token_program = token_program"
+          ],
+          "line": 20
+        },
+        {
+          "name": "token_mint_b",
+          "type": "InterfaceAccount<'info, Mint>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "constraints": [
+            "mint::token_program = token_program"
+          ],
+          "line": 23
+        },
+        {
+          "name": "maker_token_account_a",
+          "type": "InterfaceAccount<'info, TokenAccount>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "constraints": [
+            "mut",
+            "associated_token::mint = token_mint_a",
+            "associated_token::authority = maker",
+            "associated_token::token_program = token_program"
+          ],
+          "line": 31
+        },
+        {
+          "name": "offer",
+          "type": "Account<'info, Offer>",
+          "kind": "Account",
+          "unchecked": false,
+          "constraints": [
+            "init",
+            "payer = maker",
+            "space = ANCHOR_DISCRIMINATOR + Offer::INIT_SPACE",
+            "seeds = [b\"offer\", maker.key().as_ref(), id.to_le_bytes().as_ref()]",
+            "bump"
+          ],
+          "line": 40
+        },
+        {
+          "name": "vault",
+          "type": "InterfaceAccount<'info, TokenAccount>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "constraints": [
+            "init",
+            "payer = maker",
+            "associated_token::mint = token_mint_a",
+            "associated_token::authority = offer",
+            "associated_token::token_program = token_program"
+          ],
+          "line": 49
+        },
+        {
+          "name": "associated_token_program",
+          "type": "Program<'info, AssociatedToken>",
+          "kind": "Program",
+          "unchecked": false,
+          "line": 51
+        },
+        {
+          "name": "token_program",
+          "type": "Interface<'info, TokenInterface>",
+          "kind": "Interface",
+          "unchecked": false,
+          "line": 52
+        },
+        {
+          "name": "system_program",
+          "type": "Program<'info, System>",
+          "kind": "Program",
+          "unchecked": false,
+          "line": 53
+        }
+      ]
+    },
+    {
+      "name": "TakeOffer",
+      "path": "TakeOffer",
+      "file": "programs/escrow/src/instructions/take_offer.rs",
+      "line": 16,
+      "fields": [
+        {
+          "name": "taker",
+          "type": "Signer<'info>",
+          "kind": "Signer",
+          "unchecked": false,
+          "constraints": [
+            "mut"
+          ],
+          "line": 18
+        },
+        {
+          "name": "maker",
+          "type": "SystemAccount<'info>",
+          "kind": "SystemAccount",
+          "unchecked": false,
+          "constraints": [
+            "mut"
+          ],
+          "line": 21
+        },
+        {
+          "name": "token_mint_a",
+          "type": "InterfaceAccount<'info, Mint>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "line": 23
+        },
+        {
+          "name": "token_mint_b",
+          "type": "InterfaceAccount<'info, Mint>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "line": 25
+        },
+        {
+          "name": "taker_token_account_a",
+          "type": "Box<InterfaceAccount<'info, TokenAccount>>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "constraints": [
+            "init_if_needed",
+            "payer = taker",
+            "associated_token::mint = token_mint_a",
+            "associated_token::authority = taker",
+            "associated_token::token_program = token_program"
+          ],
+          "line": 34
+        },
+        {
+          "name": "taker_token_account_b",
+          "type": "Box<InterfaceAccount<'info, TokenAccount>>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "constraints": [
+            "mut",
+            "associated_token::mint = token_mint_b",
+            "associated_token::authority = taker",
+            "associated_token::token_program = token_program"
+          ],
+          "line": 42
+        },
+        {
+          "name": "maker_token_account_b",
+          "type": "Box<InterfaceAccount<'info, TokenAccount>>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "constraints": [
+            "init_if_needed",
+            "payer = taker",
+            "associated_token::mint = token_mint_b",
+            "associated_token::authority = maker",
+            "associated_token::token_program = token_program"
+          ],
+          "line": 51
+        },
+        {
+          "name": "offer",
+          "type": "Account<'info, Offer>",
+          "kind": "Account",
+          "unchecked": false,
+          "constraints": [
+            "mut",
+            "close = maker",
+            "has_one = maker",
+            "has_one = token_mint_a",
+            "has_one = token_mint_b",
+            "seeds = [b\"offer\", maker.key().as_ref(), offer.id.to_le_bytes().as_ref()]",
+            "bump = offer.bump"
+          ],
+          "line": 62
+        },
+        {
+          "name": "vault",
+          "type": "InterfaceAccount<'info, TokenAccount>",
+          "kind": "InterfaceAccount",
+          "unchecked": false,
+          "constraints": [
+            "mut",
+            "associated_token::mint = token_mint_a",
+            "associated_token::authority = offer",
+            "associated_token::token_program = token_program"
+          ],
+          "line": 70
+        },
+        {
+          "name": "associated_token_program",
+          "type": "Program<'info, AssociatedToken>",
+          "kind": "Program",
+          "unchecked": false,
+          "line": 72
+        },
+        {
+          "name": "token_program",
+          "type": "Interface<'info, TokenInterface>",
+          "kind": "Interface",
+          "unchecked": false,
+          "line": 73
+        },
+        {
+          "name": "system_program",
+          "type": "Program<'info, System>",
+          "kind": "Program",
+          "unchecked": false,
+          "line": 74
+        }
+      ]
+    }
+  ],
+  "states": [
+    {
+      "name": "Offer",
+      "file": "programs/escrow/src/state/offer.rs",
+      "line": 5,
+      "fields": [
+        "id: u64",
+        "maker: Pubkey",
+        "token_mint_a: Pubkey",
+        "token_mint_b: Pubkey",
+        "token_b_wanted_amount: u64",
+        "bump: u8"
+      ]
+    }
+  ],
+  "diagnostics": []
+}

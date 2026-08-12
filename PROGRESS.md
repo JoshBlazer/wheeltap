@@ -1,18 +1,17 @@
 # Wheeltap — Progress
 
-**Current phase:** 0 complete — next is 1, Loader, parser, and program context
+**Current phase:** 1 complete — next is 2, Detector engine and WT001-WT003
 **Last updated:** 2026-08-12
-**Build status:** green — `fmt --check`, `clippy -D warnings`, and 7 tests pass
-on stable 1.97.1, and the workspace builds on the 1.88 MSRV. Both CI jobs green
-on a fresh clone at `492e419`.
+**Build status:** green — `fmt --check`, `clippy -D warnings`, and 64 tests pass
+on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 
 ## Phase status
 
 | Phase | Name | Status | Exit criteria met | Notes |
 |-------|------|--------|-------------------|-------|
 | 0 | Foundations | **done** | yes | CI green on a fresh clone, both jobs, at `492e419` |
-| 1 | Loader, parser, program context | next | — | |
-| 2 | Detector engine + WT001-WT003 | not started | — | |
+| 1 | Loader, parser, program context | **done** | yes | `debug-context` models all three corpus programs accurately; 64 tests |
+| 2 | Detector engine + WT001-WT003 | next | — | |
 | 3 | Full detector suite | not started | — | |
 | 4 | Reporting, suppression, baselines | not started | — | |
 | 5 | GitHub Action and distribution | not started | — | |
@@ -40,28 +39,60 @@ No detectors implemented. A rule is `implemented` only when its true-positive
 
 ## What works right now
 
+**Phase 0 — scaffolding.**
+
 - Cargo workspace laid out per build spec §4.5, with the root as the installable
   `wheeltap` binary (ADR-002).
 - Four library crates with their dependency graph wired: `wheeltap-core`,
   `-rules`, `-report`, `-cli`.
 - CI workflow: `fmt --check`, `clippy -D warnings`, build, test, plus a separate
   MSRV job that reads the version out of the manifest so it cannot drift.
-- Corpus of three vendored real Anchor programs, licence-checked and attributed:
-  `escrow` (~300 lines), `anchor-misc` (~3,000), `drift` (~72,900).
-- Documentation skeletons: `README.md`, `DECISIONS.md` (ADR-001 to ADR-004),
+- Corpus of three vendored real Anchor programs, licence-checked and attributed.
+- Documentation: `README.md`, `DECISIONS.md` (ADR-001 to ADR-006),
   `docs/DETECTORS.md`, `docs/BENCHMARKS.md`, fixture and corpus READMEs.
-- Seven passing unit tests pinning the foundations: `syn` parses Anchor-shaped
-  source and reports usable spans, malformed source errors rather than
-  panicking, the hash helper is deterministic and field-separated, the CLI
-  definition is valid, exit codes match the documented contract.
-- The `wheeltap` binary builds and runs: `--version`, `--help`, and both
-  subcommands dispatch correctly.
+
+**Phase 1 — the analyser.**
+
+- **Loader.** Walks a directory or a single file, honours `.gitignore` (even
+  outside a git repository), skips `target/`, `.git/`, `node_modules/`, does not
+  follow symlinks, and returns files in sorted order so runs are reproducible.
+- **Parser.** `syn::parse_file` with spans. A file that fails to parse, is not
+  UTF-8, or is unreadable produces a warning and the scan continues.
+- **`ProgramContext`.** `#[program]` modules; handlers, recognised anywhere a
+  function takes a `Context<T>` (ADR-006); `#[derive(Accounts)]` structs with
+  every Anchor account type, seeing through `Box` and `Option`; `#[account(...)]`
+  constraints parsed into structured form; `#[account]` data structs;
+  `/// CHECK:` comments; `#[instruction(...)]` argument lists.
+- **Constraint parsing.** Hand-written token splitting, because Anchor's grammar
+  is not Rust attribute-meta syntax — `has_one = x @ MyError` defeats
+  `parse_nested_meta` outright. Distinguishes a canonical `bump` from a supplied
+  `bump = expr`, which a whole detector will rest on.
+- **Source map.** Span to file, line, column, and bounded snippets.
+- **`wheeltap debug-context <path> [--json]`.** Prints the model.
+
+**Measured on the corpus** (release build, single-threaded):
+
+| Program | Files | Lines | Handlers | Accounts structs | Constraints | Time |
+|---|---|---|---|---|---|---|
+| `escrow` | 9 | 313 | 6 | 2 | 44 | <0.01 s |
+| `anchor-misc` | 15 | 3,057 | 141 | 145 | 527 | 0.02 s |
+| `drift` | 116 | 73,011 | 262 | 155 | 1,108 | 0.36 s |
+
+Zero parse diagnostics and zero unresolved handlers across all 76,000 lines.
+
+- 64 passing tests: 42 unit, 8 corpus integration, 10 robustness, 1 snapshot,
+  3 CLI output.
 
 ## What does not work yet
 
-- `wheeltap scan` and `wheeltap debug-context` exit 2 with "not implemented".
-- No loader, no parser, no program context model, no detectors, no reporters.
-- Nothing analyses anything yet. The tool is a skeleton with green scaffolding.
+- `wheeltap scan` still exits 2 with "not implemented". No detectors, no
+  findings, no reporters — the analyser understands the code but says nothing
+  about it.
+- Module paths are resolved within a file only; `mod x;` is not followed to
+  `x.rs`. Identity combines the relative file path with the in-file item path,
+  so this costs nothing downstream.
+- Items generated by macro *invocations* are invisible. A known and tested limit
+  of syntactic analysis (ADR-001).
 
 ## Decisions made
 
@@ -74,11 +105,31 @@ No detectors implemented. A rule is `implemented` only when its true-positive
 | 2026-08-11 | ADR-004: `proc-macro2` `span-locations` for line/column | The caveat (proc-macro context) does not apply to a CLI; avoids recomputing offsets `syn` already has | Hand-rolled offset table from raw source |
 | 2026-08-11 | Corpus: `escrow`, `anchor-misc`, `drift` | Deliberate size ladder — idiomatic small, constraint-dense medium, production large; all permissively licensed | Squads v4 (AGPL-3.0, copyleft); Marinade (unclear licence, `NOASSERTION`); SPL (archived, mostly not Anchor) |
 | 2026-08-11 | Prune `drift`'s 51 test files from the corpus | 76,000 lines, more than half the program, that exercise the analyser without teaching it anything; behaviour on `#[cfg(test)]` code belongs in a purpose-built fixture | Vendor `drift` whole (repository bulk); vendor only `instructions/` (loses realistic module depth) |
+| 2026-08-12 | ADR-005: no `rayon`; single-threaded analysis | `syn` ASTs are not `Send` (`proc-macro2` uses `Rc`), so shared-context parallelism will not compile; and drift models in 0.36 s, so there is nothing to win | Two-pass parallelism (doubles parse cost); discard `syn` nodes for an owned model (blinds body-level detectors) |
+| 2026-08-12 | Analysis runs on a 16 MiB stack thread | `syn` is recursive-descent; a test-harness thread gets 2 MiB against the main thread's 8 MiB, so identical input aborted under `cargo test` and passed from the CLI | Leave it to the caller (behaviour varies by context); bound nesting alone (rejects legitimate code) |
+| 2026-08-12 | ADR-006: handlers recognised wherever declared | Real Anchor delegates from `#[program]` to `handle_*` functions; entrypoint-only modelling saw **0** of drift's 262 handlers | Model only `#[program]` functions (misses where arithmetic and CPI actually live) |
+| 2026-08-12 | Token-walking renderer instead of string post-processing | Collapsing spaces in rendered token text cannot tell `a != b` from a negation and got it wrong; `Punct::spacing()` already carries the answer | Regex/string cleanup of `TokenStream::to_string()` |
 
 ## Known false positives / negatives
 
-None yet — nothing is implemented. This section stays in the file as a standing
-obligation: known weaknesses get documented here rather than quietly tolerated.
+No detectors yet, so no findings to be wrong about. The modelling limits that
+will shape detector accuracy are known and recorded now:
+
+- **Macro-generated items are invisible.** An Accounts struct declared inside a
+  macro invocation is not modelled, and nothing warns about it. Tested and
+  documented rather than papered over.
+- **Any function taking a `Context<T>` is modelled as a handler**, including
+  helpers that are not instructions. Deliberate (ADR-006): a spurious handler
+  costs a wasted pass, a missed one costs coverage silently.
+- **Type aliases are not resolved.** `type MyAccount = Account<'info, Vault>;`
+  models as a composite, not an `Account`. No corpus program does this, but it
+  would be a false negative for the owner-check detectors.
+- **Constraint assertion helpers are textual.** `asserts_owner` and friends look
+  for `.owner`, `is_signer`, `key()` inside a custom constraint rather than
+  understanding the expression. Good enough to suppress false positives,
+  not good enough to be relied on as proof of validation.
+- **Files nested more than 256 deep are skipped** with a warning rather than
+  parsed. No real code approaches this.
 
 ## Open questions (for the human)
 
@@ -118,10 +169,18 @@ value and the most persuasive artefact for a portfolio.
 
 ## Next actions
 
-1. Answer Q4 to Q7 and record them in `DECISIONS.md`. None block Phase 1.
-4. Begin Phase 1: file discovery honouring `.gitignore`, `syn::parse_file` with
-   parse failures degraded to warnings, and the `ProgramContext` model —
-   `#[program]` modules, `#[derive(Accounts)]` structs, Anchor account types,
-   and structured `#[account(...)]` constraints.
-5. Phase 1 exit: `wheeltap debug-context fixtures/corpus/escrow` prints an
-   accurate model, and the same command survives `drift` without panicking.
+1. Answer Q4 to Q7 and record them in `DECISIONS.md`. **Q4 and Q6 must be
+   settled before Phase 3.**
+2. Begin Phase 2 — the detector engine and the first three rules:
+   - `Detector` trait and registry; `Finding` with deterministic identity per
+     build spec §4.3, `hash(rule_id, relative_path, enclosing_item_path,
+     normalised_snippet)`. The context already carries `item_path` on every
+     field and handler for exactly this.
+   - **Fixtures first**, per rule: the vulnerable case, then at least two safe
+     cases a naive implementation would flag, then the `docs/DETECTORS.md`
+     entry, then the detector.
+   - WT001 missing signer, WT002 missing owner, WT003 unchecked arithmetic.
+   - JSON reporter; `wheeltap scan` with exit codes 0/1/2.
+3. Phase 2 exit: `wheeltap scan fixtures/vulnerable` catches everything and
+   `wheeltap scan fixtures/safe` reports nothing, with the no-false-positive
+   assertion enforced globally across every rule.

@@ -8,6 +8,8 @@
 //! | 1    | scan completed, findings at or above the threshold |
 //! | 2    | internal error: Wheeltap could not complete the scan |
 
+mod debug_context;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -43,6 +45,9 @@ enum Command {
     DebugContext {
         /// Directory or file to model.
         path: PathBuf,
+        /// Emit the model as JSON instead of text.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -51,14 +56,12 @@ enum Command {
 pub fn run() -> ExitCode {
     let cli = Cli::parse();
 
-    let unimplemented_in = |phase: &str, what: &str| -> ExitCode {
-        eprintln!("wheeltap: `{what}` is not implemented yet (arrives in {phase}).");
-        ExitCode::from(EXIT_ERROR)
-    };
-
     match cli.command {
-        Command::Scan { .. } => unimplemented_in("Phase 2", "scan"),
-        Command::DebugContext { .. } => unimplemented_in("Phase 1", "debug-context"),
+        Command::Scan { .. } => {
+            eprintln!("wheeltap: `scan` is not implemented yet (arrives in Phase 2).");
+            ExitCode::from(EXIT_ERROR)
+        }
+        Command::DebugContext { path, json } => debug_context::run(&path, json),
     }
 }
 

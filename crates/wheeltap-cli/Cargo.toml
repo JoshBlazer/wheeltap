@@ -13,6 +13,7 @@ wheeltap-report.workspace = true
 wheeltap-rules.workspace = true
 
 clap.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

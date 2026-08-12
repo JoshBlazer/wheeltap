@@ -11,27 +11,60 @@ include the misses** — a tool whose limits are undocumented cannot be trusted.
 
 ## Status
 
-Not yet measured. Phase 0 vendored the corpus these numbers will come from; see
-`fixtures/corpus/README.md`.
+**Parsing and modelling are measured** (Phase 1). Detector cost and the audit
+comparison come in Phases 3 and 6, once there are detectors to measure.
 
 ## Corpus
 
 | Program | Rust files | Lines | Character |
 |---|---|---|---|
-| `escrow` | 5 | ~300 | Small, idiomatic, modern Anchor |
-| `anchor-misc` | 70 | ~3,000 | Account-type and constraint coverage |
-| `drift` | 116 | ~72,900 | Production DeFi protocol |
+| `escrow` | 9 | 313 | Small, idiomatic, modern Anchor |
+| `anchor-misc` | 15 | 3,057 | Account-type and constraint coverage |
+| `drift` | 116 | 73,011 | Production DeFi protocol |
 
 Line counts exclude the test files pruned from `drift`.
 
 ## Scan time
 
-_Phase 6._ Wall-clock over each corpus program, on stated hardware, with the
-thread count fixed. Reported alongside lines of source, to show the scaling
-claimed in the build spec's invariants (linear in source size).
+Wall clock for `wheeltap debug-context`, which is the full pipeline short of
+detectors: discovery, parsing, and building the program model. Release build,
+single-threaded, best of five runs. Hardware: x86-64 Linux (WSL2), Rust 1.97.1.
 
 | Program | Lines | Files | Wall clock | Lines/sec |
 |---|---|---|---|---|
+| `escrow` | 313 | 9 | <0.01 s | — |
+| `anchor-misc` | 3,057 | 15 | 0.02 s | ~153,000 |
+| `drift` | 73,011 | 116 | 0.36 s | ~203,000 |
+
+Peak memory on `drift` is roughly 77 MB, which is the retained AST: the model
+keeps `syn` nodes so that later phases can analyse handler bodies (ADR-005).
+
+Two things follow, and both are recorded rather than assumed:
+
+**Scaling is linear-ish in source size**, as the build spec's invariant 5
+requires. Throughput rises slightly on the larger program, because fixed startup
+is amortised.
+
+**Parallelism is unnecessary.** The build spec called for `rayon` across files.
+A production DeFi protocol models in under half a second on one thread, and
+`syn` ASTs cannot cross threads anyway. The dependency was dropped rather than
+carried unused — see ADR-005 for the measurement that decided it.
+
+## Modelling coverage
+
+Accuracy matters more than speed here: a fast scan of a model that missed half
+the program would be worse than useless. Measured across the corpus:
+
+| Program | Handlers | Accounts structs | Account fields | Constraints | Parse failures | Unresolved handlers |
+|---|---|---|---|---|---|---|
+| `escrow` | 6 | 2 | 21 | 44 | 0 | 0 |
+| `anchor-misc` | 141 | 145 | 431 | 527 | 0 | 0 |
+| `drift` | 262 | 155 | 855 | 1,108 | 0 | 0 |
+
+**Zero parse failures across 76,381 lines** of real third-party code, and every
+handler resolves to an Accounts struct the scan actually found. An unresolved
+handler would mean the model was reasoning about less than the whole program,
+so it is tracked as a first-class number rather than left implicit.
 
 ## False-positive rate
 

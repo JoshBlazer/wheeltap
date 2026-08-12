@@ -171,3 +171,123 @@ has already done.
 
 - Line and column are presentation, never identity. ADR for the identity scheme
   itself will be written in Phase 2 when it is implemented.
+
+---
+
+## ADR-005 — No `rayon`: the AST is not `Send`, and single-threaded is fast enough
+
+**Date:** 2026-08-12
+**Status:** Accepted
+
+### Context
+
+The build spec's architecture calls for detectors to run "parallel across files
+(rayon)". Implementing the context model surfaced two facts that bear on this.
+
+**First, `syn` ASTs cannot cross threads.** `proc-macro2` uses `Rc` in its
+fallback token representation, so `syn::File` is neither `Send` nor `Sync`. This
+is not fixable by feature flags: disabling the `proc-macro` feature removes
+`proc_macro::Span` but leaves `Rc<Vec<TokenTree>>` behind. Any design that
+shares a `ProgramContext` across rayon threads is therefore not merely
+inadvisable but impossible to compile.
+
+**Second, it does not matter.** Measured on this machine, release build:
+
+| Program | Lines | Time | Throughput |
+|---|---|---|---|
+| `escrow` | 313 | <0.01 s | — |
+| `anchor-misc` | 3,057 | 0.02 s | ~153,000 lines/s |
+| `drift` | 73,011 | 0.36 s | ~203,000 lines/s |
+
+A production DeFi protocol models in under half a second, single-threaded.
+
+### Decision
+
+Do not use `rayon`. Run loading, parsing, and detection on one thread. Drop the
+dependency rather than keep it unused.
+
+Analysis does run on a **dedicated thread with a 16 MiB stack**, for a different
+reason: `syn` is recursive-descent, and the stack a caller provides varies —
+a Rust test-harness thread gets 2 MiB where the main thread gets 8 MiB. Source
+that analysed fine from the CLI aborted the process under `cargo test`. Behaviour
+that depends on the caller's stack is not acceptable in a linter.
+
+### Rationale
+
+Parallelism here would buy at most a few hundred milliseconds on the largest
+real program in the corpus, in exchange for an architecture that cannot hold
+`syn` nodes in shared state — which means either re-parsing every file twice or
+discarding the AST that body-level detectors need.
+
+Optimising before measuring would have cost the analysis power the detectors
+depend on, to save a third of a second.
+
+### Consequences
+
+- `ProgramContext` is free to retain `syn::ItemFn` and `syn::ItemStruct` whole,
+  which is what makes Phase 3's arithmetic and CPI detectors possible at all.
+- Scan time is linear in source size and stays well inside a CI budget.
+- If a future program is large enough to need parallelism, the shape is known:
+  fan out per file, since the AST never has to leave the thread that made it,
+  and share only an owned cross-file index. Recorded here so the option is not
+  rediscovered from scratch.
+- Stack depth is bounded twice over: a 16 MiB analysis stack, and a cheap
+  textual nesting check that refuses pathological files with a warning. A stack
+  overflow aborts the process and cannot be caught, so it is the one failure
+  mode that has to be prevented rather than handled.
+
+### Alternatives rejected
+
+- **Two-pass parallelism** — parse in parallel to build an owned index, then
+  re-parse in parallel to run detectors. Doubles parse cost to parallelise a
+  0.36-second workload.
+- **Discard `syn` nodes after building an owned model** — makes the context
+  `Send`, but blinds every detector that needs to look inside a handler body.
+
+---
+
+## ADR-006 — Handlers are recognised wherever they are declared
+
+**Date:** 2026-08-12
+**Status:** Accepted
+
+### Context
+
+The obvious reading of Anchor is that instruction handlers are the functions
+inside the `#[program]` module. Modelling only those, and running the result
+against the corpus, gave a clear answer: **drift reported zero handlers**.
+
+Two things were true. Drift's vendored commit has its entire dispatch module
+commented out — 245 commented handlers against one live function. And, more
+importantly, drift's real logic lives in 287 `handle_*` functions under
+`src/instructions/`, which the `#[program]` module only delegates to. Escrow is
+the same shape at small scale: two entrypoints, four delegated functions.
+
+This is the normal way non-trivial Anchor programs are organised.
+
+### Decision
+
+Model **any function whose first parameter is a `Context<T>`** as a handler,
+wherever it is declared, recording whether it sits inside a `#[program]` module.
+Handlers with a program are entrypoints; the rest are delegated.
+
+`&Context<T>` counts too — escrow borrows its context in one helper.
+
+### Rationale
+
+The `Context<T>` parameter, not the enclosing module, is what makes a function
+operate on an instruction's accounts. Detectors that read handler bodies —
+unchecked arithmetic, arbitrary CPI — need the function that contains the
+arithmetic and the CPI, which is the delegated one.
+
+Modelling only entrypoints would have made those detectors analyse delegation
+stubs and report nothing, on the single largest program in the corpus.
+
+### Consequences
+
+- Corpus coverage went from 2 handlers to 262 on drift.
+- A handler's identity includes its file, so two `handle_x` functions in
+  different modules are distinct.
+- Some non-instruction helpers that happen to take a `Context` are modelled as
+  handlers. This is the right trade: a false handler costs a detector one
+  harmless pass, while a missed handler costs coverage silently.

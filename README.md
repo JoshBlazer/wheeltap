@@ -8,10 +8,10 @@ findings as JSON, Markdown, or SARIF.
 > train striking each wheel with a long hammer, listening for the dull note that
 > betrayed a crack invisible from the outside.
 
-> ⚠️ **Under construction — Phase 1 of 6.** The workspace, CI, and scan corpus
-> are in place and green; the parser and detectors are not written yet, so the
-> tool finds nothing. `PROGRESS.md` is the live status. This notice comes out at
-> v1.0.0.
+> ⚠️ **Under construction — Phase 2 of 6.** The analyser is built and models
+> real Anchor programs (try `wheeltap debug-context`), but no detectors are
+> implemented yet, so it does not report findings. `PROGRESS.md` is the live
+> status. This notice comes out at v1.0.0.
 
 ## The problem
 
@@ -56,6 +56,28 @@ _Not yet installable — Phase 5._ The intended shape:
 $ cargo install wheeltap
 $ wheeltap scan ./programs
 ```
+
+What works today is the analyser. Build from source and inspect the model
+Wheeltap builds of a program:
+
+```console
+$ cargo build --release
+$ ./target/release/wheeltap debug-context fixtures/corpus/escrow
+9 files scanned, 313 lines
+
+program escrow (programs/escrow/src/lib.rs:15)
+  make_offer  L18 -> MakeOffer
+  take_offer  L28 -> TakeOffer
+
+accounts TakeOffer (programs/escrow/src/instructions/take_offer.rs:16)
+  taker   Signer<'info>          [mut]
+  maker   SystemAccount<'info>   [mut]
+  offer   Account<'info, Offer>  [mut, close = maker, has_one = maker, seeds = [...], bump = offer.bump]
+  ...
+```
+
+Add `--json` for the machine-readable form. It models a 73,000-line production
+protocol in 0.36 seconds.
 
 ## Detectors
 

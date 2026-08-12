@@ -1,9 +1,23 @@
 //! Core types and analysis machinery for Wheeltap.
 //!
-//! Phase 0 establishes only the two foundations every later phase depends on:
-//! that `syn` gives us source locations we can map back to a file, and that we
-//! can hash content deterministically for finding identity (see `DECISIONS.md`,
-//! ADR-003). The program context model arrives in Phase 1.
+//! The pipeline runs [`loader`] → [`model`] → detectors:
+//!
+//! - [`loader`] discovers and parses source, degrading parse failures to
+//!   [`diag`] warnings rather than aborting the scan.
+//! - [`source`] maps `syn` spans back to files, lines, and snippets.
+//! - [`model`] turns the AST into an Anchor-aware [`model::ProgramContext`].
+//! - [`summary`] projects that model onto serialisable data for
+//!   `wheeltap debug-context` and snapshot tests.
+//!
+//! Detectors and findings arrive in Phase 2.
+
+pub mod diag;
+pub mod loader;
+pub mod model;
+pub mod source;
+pub mod summary;
+
+pub use model::ProgramContext;
 
 use sha2::{Digest, Sha256};
 

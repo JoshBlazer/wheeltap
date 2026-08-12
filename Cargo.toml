@@ -21,6 +21,13 @@ path = "src/main.rs"
 [dependencies]
 wheeltap-cli = { version = "0.1.0", path = "crates/wheeltap-cli" }
 
+# Integration tests live in `tests/` and exercise the analysis directly.
+[dev-dependencies]
+wheeltap-core.workspace = true
+insta.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
 [workspace]
 members = ["crates/*"]
 # Fixtures and vendored corpus programs carry their own manifests and are inputs
@@ -43,12 +50,22 @@ wheeltap-report = { version = "0.1.0", path = "crates/wheeltap-report" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
-proc-macro2 = { version = "1", features = ["span-locations"] }
-rayon = "1"
+# `proc-macro` is off deliberately: Wheeltap is a CLI, never a procedural macro,
+# and the feature drags in `proc_macro::Span`, which is unusable off the compiler
+# thread. `span-locations` is what gives us line and column (ADR-004).
+proc-macro2 = { version = "1", default-features = false, features = ["span-locations"] }
+quote = { version = "1", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
-syn = { version = "3", features = ["full", "extra-traits", "visit", "parsing"] }
+syn = { version = "3", default-features = false, features = [
+    "full",
+    "parsing",
+    "printing",
+    "clone-impls",
+    "extra-traits",
+    "visit",
+] }
 thiserror = "2"
 toml = "1"
 
