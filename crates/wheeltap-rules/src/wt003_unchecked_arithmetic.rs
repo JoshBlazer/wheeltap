@@ -89,12 +89,40 @@ impl Detector for UncheckedArithmetic {
     }
 }
 
+/// Accessors for an account's raw lamport balance.
+///
+/// Arithmetic through these is excluded, on evidence. Every one of the six
+/// findings this rule produced across 76,000 lines of third-party code was of
+/// this shape, and all six were false positives; then a safe fixture for WT008
+/// — correct, careful close code — produced three more.
+///
+/// The reasons they are not real are structural rather than incidental. Lamport
+/// balances are bounded by the total supply of SOL, so an addition cannot reach
+/// `u64::MAX`. And the runtime enforces conservation of lamports across a
+/// transaction, so a subtraction that underflowed would be rejected before it
+/// could settle. Neither argument applies to a balance a program tracks itself,
+/// which is what this rule is for.
+const LAMPORT_ACCESSORS: &[&str] = &[
+    "try_borrow_mut_lamports",
+    "try_borrow_lamports",
+    "lamports()",
+    "lamports.borrow_mut",
+];
+
 /// Whether an operation is worth reporting.
 ///
-/// Requires a value-like operand and rejects counting arithmetic. Most
-/// arithmetic in a program is indices, lengths, and sizes; reporting those
-/// trains people to ignore the rule, and then they ignore the one that mattered.
+/// Requires a value-like operand, rejects counting arithmetic, and rejects raw
+/// lamport manipulation. Most arithmetic in a program is indices, lengths, and
+/// sizes; reporting those trains people to ignore the rule, and then they ignore
+/// the one that mattered.
 fn is_risky(text: &str) -> bool {
+    if LAMPORT_ACCESSORS
+        .iter()
+        .any(|accessor| text.contains(accessor))
+    {
+        return false;
+    }
+
     mentions_value(text) && !mentions_counter(text)
 }
 
@@ -178,6 +206,12 @@ mod tests {
         assert!(is_risky("stake.amount + amount"));
         assert!(is_risky("pool.remaining_rewards -= rewards"));
         assert!(is_risky("self.balance * multiplier"));
+
+        // Raw lamport arithmetic: bounded by the supply of SOL, and the runtime
+        // enforces conservation across the transaction.
+        assert!(!is_risky("**dest.try_borrow_mut_lamports()? += balance"));
+        assert!(!is_risky("**vault.try_borrow_mut_lamports()? -= amount"));
+        assert!(!is_risky("account.lamports() - rent_exempt_balance"));
 
         assert!(!is_risky("i + 1"));
         assert!(!is_risky("entries.len() - 1"));

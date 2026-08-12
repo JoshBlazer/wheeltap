@@ -88,8 +88,8 @@ fn no_safe_fixture_is_flagged_by_any_rule() {
 fn safe_fixtures_are_actually_analysed() {
     let report = scan(&fixtures("safe"));
 
-    assert!(report.files_scanned >= 6, "expected the whole safe corpus");
-    assert!(report.lines_scanned > 300);
+    assert!(report.files_scanned >= 13, "expected the whole safe corpus");
+    assert!(report.lines_scanned > 800);
     assert!(
         report.diagnostics.is_empty(),
         "a safe fixture that failed to parse would pass gate 2 for the wrong reason: {:?}",
@@ -119,7 +119,7 @@ fn known_gaps_are_still_missed() {
 fn scanning_the_vulnerable_corpus_reports_all_three_rules() {
     let report = scan(&fixtures("vulnerable"));
 
-    for rule in ["WT001", "WT002", "WT003"] {
+    for rule in wheeltap_rules::all().iter().map(|d| d.rule_id()) {
         assert!(
             report.findings.iter().any(|f| f.rule == rule),
             "{rule} reported nothing across the whole vulnerable corpus"
@@ -215,7 +215,7 @@ fn the_real_corpus_stays_quiet() {
         .map(|name| scan(&corpus.join(name)).findings.len())
         .sum();
     assert!(
-        total <= 10,
+        total <= 40,
         "false-positive budget exceeded on the real corpus: {total} findings"
     );
 }

@@ -8,7 +8,7 @@ findings as JSON, Markdown, or SARIF.
 > train striking each wheel with a long hammer, listening for the dull note that
 > betrayed a crack invisible from the outside.
 
-> ⚠️ **Under construction — Phase 3 of 6.** Three of twelve detectors are
+> ⚠️ **Under construction — Phase 4 of 6.** All twelve detectors are
 > implemented and `wheeltap scan` reports findings as JSON. Markdown and SARIF
 > output, suppression, and baselines arrive in Phase 4. `PROGRESS.md` is the
 > live status. This notice comes out at v1.0.0.
@@ -92,10 +92,39 @@ how you find out whether a missing finding is the rule's fault or the parser's.
 
 ## Detectors
 
-Twelve rules planned, covering missing signer and owner checks, unchecked
-arithmetic, reinitialisation, PDA bump canonicality, arbitrary CPI targets,
-sysvar spoofing, and account aliasing. Catalogue and build order:
-[`docs/DETECTORS.md`](docs/DETECTORS.md).
+| ID | Name | Severity | Confidence |
+|---|---|---|---|
+| WT001 | Missing signer check | Critical | High |
+| WT002 | Missing owner check | Critical | Medium |
+| WT003 | Unchecked arithmetic | High | Medium |
+| WT004 | Account reinitialisation | High | Medium |
+| WT005 | Missing `has_one` constraint | High | Medium |
+| WT006 | Non-canonical PDA bump | High | High |
+| WT007 | Arbitrary CPI target | Critical | High |
+| WT008 | Unsafe account close | Medium | Medium |
+| WT009 | Sysvar spoofing | High | High |
+| WT010 | Unchecked deserialisation | High | High |
+| WT011 | Duplicate mutable accounts | Medium | Medium |
+| WT012 | Allocation in a loop | Low | Medium |
+
+Each rule's page in [`docs/DETECTORS.md`](docs/DETECTORS.md) gives a vulnerable
+example, the fix, and — the part worth reading — **what it cannot see**.
+
+**Severity** is the impact if the finding is real. **Confidence** is how sure
+Wheeltap is that it read the code correctly: a statement about the analyser, not
+the vulnerability. They are never collapsed into one number.
+
+### Measured noise
+
+On 76,381 lines of third-party Anchor code (Anchor's test suite and the drift
+perpetuals protocol), Wheeltap reports **35 findings: 15 true positives, 20 false
+positives**. A small, correct, idiomatic program reports **zero**. Every finding
+is triaged individually in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), including
+the false positives and why each survives.
+
+Real vulnerabilities the detectors *miss* are kept as runnable fixtures in
+`fixtures/known_gaps/`, with a test asserting they stay missed until a rule
+improvement catches them.
 
 ## Deterministic finding identity
 

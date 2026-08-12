@@ -10,12 +10,30 @@ mod names;
 mod wt001_missing_signer;
 mod wt002_missing_owner;
 mod wt003_unchecked_arithmetic;
+mod wt004_reinitialisation;
+mod wt005_missing_has_one;
+mod wt006_non_canonical_bump;
+mod wt007_arbitrary_cpi;
+mod wt008_unsafe_close;
+mod wt009_sysvar_spoofing;
+mod wt010_unchecked_deserialisation;
+mod wt011_duplicate_mutable;
+mod wt012_alloc_in_loop;
 
 use wheeltap_core::Detector;
 
 pub use wt001_missing_signer::MissingSigner;
 pub use wt002_missing_owner::MissingOwner;
 pub use wt003_unchecked_arithmetic::UncheckedArithmetic;
+pub use wt004_reinitialisation::Reinitialisation;
+pub use wt005_missing_has_one::MissingHasOne;
+pub use wt006_non_canonical_bump::NonCanonicalBump;
+pub use wt007_arbitrary_cpi::ArbitraryCpi;
+pub use wt008_unsafe_close::UnsafeClose;
+pub use wt009_sysvar_spoofing::SysvarSpoofing;
+pub use wt010_unchecked_deserialisation::UncheckedDeserialisation;
+pub use wt011_duplicate_mutable::DuplicateMutable;
+pub use wt012_alloc_in_loop::AllocInLoop;
 
 /// Rule identifiers the catalogue plans to cover, in build order.
 ///
@@ -33,6 +51,15 @@ pub fn all() -> Vec<Box<dyn Detector>> {
         Box::new(MissingSigner),
         Box::new(MissingOwner),
         Box::new(UncheckedArithmetic),
+        Box::new(Reinitialisation),
+        Box::new(MissingHasOne),
+        Box::new(NonCanonicalBump),
+        Box::new(ArbitraryCpi),
+        Box::new(UnsafeClose),
+        Box::new(SysvarSpoofing),
+        Box::new(UncheckedDeserialisation),
+        Box::new(DuplicateMutable),
+        Box::new(AllocInLoop),
     ]
 }
 
@@ -69,8 +96,10 @@ mod tests {
     }
 
     #[test]
-    fn registered_detectors_match_the_documented_phase_two_set() {
+    fn registered_detectors_are_in_catalogue_order() {
         let ids: Vec<_> = all().iter().map(|d| d.rule_id()).collect();
-        assert_eq!(ids, ["WT001", "WT002", "WT003"]);
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        assert_eq!(ids, sorted, "register detectors in rule-id order");
     }
 }

@@ -1,8 +1,8 @@
 # Wheeltap — Progress
 
-**Current phase:** 2 complete — next is 3, the full detector suite
+**Current phase:** 3 complete — next is 4, reporting, suppression, and baselines
 **Last updated:** 2026-08-12
-**Build status:** green — `fmt --check`, `clippy -D warnings`, and 112 tests pass
+**Build status:** green — `fmt --check`, `clippy -D warnings`, and 119 tests pass
 on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 
 ## Phase status
@@ -12,8 +12,8 @@ on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 | 0 | Foundations | **done** | yes | CI green on a fresh clone, both jobs, at `492e419` |
 | 1 | Loader, parser, program context | **done** | yes | `debug-context` models all three corpus programs accurately; 64 tests |
 | 2 | Detector engine + WT001-WT003 | **done** | yes | `scan fixtures/vulnerable` catches all three; `scan fixtures/safe` reports nothing |
-| 3 | Full detector suite | next | — | WT004-WT012 |
-| 4 | Reporting, suppression, baselines | not started | — | |
+| 3 | Full detector suite | **done** | yes | All twelve rules implemented; corpus hand-triaged in `docs/BENCHMARKS.md` |
+| 4 | Reporting, suppression, baselines | next | — | Markdown + SARIF, `wheeltap.toml`, inline `wheeltap:allow`, `--baseline` |
 | 5 | GitHub Action and distribution | not started | — | |
 | 6 | Validation, documentation, release | not started | — | |
 
@@ -27,15 +27,15 @@ fixtures pass. Fixture counts are files, not assertions.
 | WT001 | Missing signer check | Critical | **yes** | 1 | 3 | High confidence. Narrow by design: fires only when *nothing* in the account list signs — see known false negatives |
 | WT002 | Missing owner check | Critical | **yes** | 1 | 2 | Medium confidence; the owner assertion is looked for in the reading handler only |
 | WT003 | Unchecked arithmetic | High | **yes** | 1 | 2 | Medium confidence; respects `overflow-checks = true` |
-| WT004 | Account reinitialisation | High | no | 0 | 0 | Phase 3 |
-| WT005 | Missing `has_one` / constraint | High | no | 0 | 0 | Phase 3 |
-| WT006 | Non-canonical PDA bump | High | no | 0 | 0 | Phase 3 |
-| WT007 | Arbitrary CPI target | Critical | no | 0 | 0 | Phase 3 |
-| WT008 | Missing rent-exemption / close handling | Medium | no | 0 | 0 | Phase 3 |
-| WT009 | Sysvar spoofing | High | no | 0 | 0 | Phase 3 |
-| WT010 | Unsafe `AccountInfo` deserialisation | High | no | 0 | 0 | Phase 3 |
-| WT011 | Duplicate mutable accounts | Medium | no | 0 | 0 | Phase 3 |
-| WT012 | Inefficient allocation in loop | Low | no | 0 | 0 | Phase 3 |
+| WT004 | Account reinitialisation | High | **yes** | 1 | 1 | Medium confidence; excludes token accounts, which is the idiomatic `init_if_needed` |
+| WT005 | Missing `has_one` constraint | High | **yes** | 1 | 1 | Medium confidence; 15 corpus false positives on permissionless cranks — the weakest rule |
+| WT006 | Non-canonical PDA bump | High | **yes** | 1 | 1 | High confidence; distinguishes instruction data from the stored-bump idiom |
+| WT007 | Arbitrary CPI target | Critical | **yes** | 1 | 1 | High confidence; only the first CPI argument is the callee |
+| WT008 | Unsafe account close | Medium | **yes** | 1 | 1 | Medium confidence; fires on zeroing lamports, not on moving them |
+| WT009 | Sysvar spoofing | High | **yes** | 1 | 1 | High confidence; exact name match, so `rent_collector` is safe |
+| WT010 | Unchecked deserialisation | High | **yes** | 1 | 1 | High confidence; lexical match on the `_unchecked` APIs |
+| WT011 | Duplicate mutable accounts | Medium | **yes** | 1 | 1 | Medium confidence; reads handlers as well as constraints |
+| WT012 | Allocation in a loop | Low | **yes** | 1 | 1 | Medium confidence; receiver must look like a collection |
 
 ## What works right now
 
@@ -105,19 +105,35 @@ Zero parse diagnostics and zero unresolved handlers across all 76,000 lines.
 hand-triaged and all false positives, documented individually in
 `docs/BENCHMARKS.md`. `escrow` is clean.
 
-- 112 passing tests: 77 unit, 8 fixture gates, 7 corpus, 10 robustness,
-  2 snapshot, plus CLI and reporter coverage.
+**Phase 3 — the full suite.**
+
+- **WT004-WT012 implemented**, fixtures first, each with its catalogue entry
+  written before the code. Twelve rules total.
+- Every rule fires on its own vulnerable fixture; **no safe fixture is flagged by
+  any rule**, enforced globally.
+
+**Measured on 76,381 lines of third-party code:** 35 findings, hand-triaged —
+15 true positives, 20 false positives, 43% precision. `escrow` reports zero.
+Every finding is listed with a verdict in `docs/BENCHMARKS.md`.
+
+All 20 false positives share one cause: the check exists, in a function
+Wheeltap does not follow (ADR-001). Nine false-positive classes were removed
+during the phase by tightening rules — never by adjusting a fixture — including
+one Phase 2 decision reversed on new evidence.
+
+- 119 passing tests: 8 fixture gates, 7 corpus, 10 robustness, 2 snapshot, and
+  unit coverage across all four crates.
 
 ## What does not work yet
 
-- **Only Markdown and SARIF are missing from `scan`** — `--format markdown` and
-  `--format sarif` exit 2 with "not implemented" (Phase 4).
+- **Markdown and SARIF output** — `--format markdown` and `--format sarif` exit
+  2 with "not implemented" (Phase 4).
 - No suppression: neither `// wheeltap:allow(WT001)` comments nor
   `wheeltap.toml` are read yet (Phase 4). There is currently no way to silence a
   false positive short of editing the code.
 - No `--baseline` diffing yet, though the identity scheme it needs is built and
   tested (Phase 4).
-- Nine detectors remain (WT004-WT012).
+
 - Module paths are resolved within a file only; `mod x;` is not followed to
   `x.rs`. Identity combines the relative file path with the in-file item path,
   so this costs nothing downstream.
@@ -143,16 +159,32 @@ hand-triaged and all false positives, documented individually in
 | 2026-08-12 | `fixtures/known_gaps/` for documented false negatives | A detector can be made to catch any one example; when precision and recall genuinely conflict the loser gets written down and tested, not deleted | Trim the fixture until the rule passes (makes the tool look better than it is) |
 | 2026-08-12 | WT002 does not treat `load`/`load_mut` as raw reads | They are `AccountLoader`'s validating API; on a bare `AccountInfo` no such method exists. Including them gave 18 findings on drift, all correct zero-copy loaders | Keep them and document 18 false positives |
 | 2026-08-12 | Body analysis by rendered-text matching, not only an AST visitor | Owner assertions live inside macros — `require_keys_eq!(*ctx.accounts.x.owner, ..)` — which no expression visitor walks into; missing them reports correct code as critical | Visitor only (misses macros); parse macro bodies (not generally possible) |
+| 2026-08-12 | WT003 no longer flags raw lamport arithmetic (**reverses a Phase 2 decision**) | Nine examples across the corpus and WT008's safe fixture, none genuine; lamport balances are bounded by the SOL supply and the runtime enforces conservation across a transaction | Keep and document the false positives (the Phase 2 position, overturned by the safe-fixture gate) |
+| 2026-08-12 | WT005 skips accounts under `init`, unwritten accounts, and instructions holding two accounts of one type | An account being created has no prior state to check; 116 corpus findings fell to 15 | Report them and document (would have made WT005 the loudest rule by an order of magnitude) |
+| 2026-08-12 | WT004 fires only on the program's own `#[account]` state | `init_if_needed` on an associated token account is the idiomatic use and appears in nearly every token program; the inner-type test excludes it exactly | Flag every `init_if_needed` (flags a language feature) |
+| 2026-08-12 | WT011 and WT005 read handler bodies, not just constraints | Drift asserts `from_user_key != to_user_key` in the handler for all twelve of its transfer and liquidation instructions | Constraints only (12 false positives on drift alone) |
 
 ## Known false positives / negatives
 
 ### False positives
 
-Six on the real corpus, all WT003, all raw lamport arithmetic. Each is triaged
-individually in `docs/BENCHMARKS.md`. `lamports` stays in the value-word list
-deliberately: manual lamport transfers that underflow are a real bug class, and
-dropping the word would trade six documented false positives for a silent class
-of misses.
+Twenty on the real corpus, every one listed with a verdict in
+`docs/BENCHMARKS.md`. They fall into three groups, all with the same root cause
+— the validation exists in a function Wheeltap does not follow:
+
+- **WT005, 15** — permissionless cranks, where a signer named `authority` is the
+  caller rather than the account's owner. This is the weakest rule in the suite
+  and the honest place to start Phase 4's suppression work.
+- **WT011, 4** — liquidator/user pairs distinguished inside a helper.
+- **WT003, 1** — arithmetic bounded by a `validate_*` call one line above.
+
+**A Phase 2 decision was reversed here.** Phase 2 kept `lamports` in WT003's
+value-word list, documenting six false positives as an acceptable cost for
+catching underflowing hand-rolled transfers. Writing WT008's *safe* fixture
+produced three more, and the safe corpus is an absolute gate rather than a
+statistic. With nine examples and none genuine, the evidence had changed —
+lamport balances are bounded by the SOL supply, and the runtime enforces
+conservation across a transaction.
 
 ### False negatives
 

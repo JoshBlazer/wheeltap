@@ -11,8 +11,8 @@ include the misses** — a tool whose limits are undocumented cannot be trusted.
 
 ## Status
 
-**Parsing and modelling are measured** (Phase 1). Detector cost and the audit
-comparison come in Phases 3 and 6, once there are detectors to measure.
+**Parsing, modelling, and all twelve detectors are measured.** The audit
+comparison comes in Phase 6.
 
 ## Corpus
 
@@ -72,58 +72,91 @@ Every finding on the corpus is triaged by hand and the verdict recorded. The
 rate is reported per detector, because an aggregate hides the one rule that is
 ruining the experience.
 
-**WT001–WT003, measured over 76,381 lines of third-party code:**
+**All twelve rules, over 76,381 lines of third-party code:**
 
-| Rule | Findings | True positive | False positive | Precision |
+| Rule | Findings | True positive | False positive | Notes |
 |---|---|---|---|---|
-| WT001 | 0 | 0 | 0 | — |
-| WT002 | 0 | 0 | 0 | — |
-| WT003 | 6 | 0 | 6 | 0% |
-| **Total** | **6** | **0** | **6** | **0%** |
+| WT001 | 0 | — | — | |
+| WT002 | 0 | — | — | |
+| WT003 | 1 | 0 | 1 | bounded by a validation in a called method |
+| WT004 | 3 | 3 | 0 | Anchor's own `init_if_needed` test programs |
+| WT005 | 15 | 0 | 15 | permissionless cranks — the dominant remaining gap |
+| WT006 | 10 | 10 | 0 | Anchor test programs taking bumps from instruction data |
+| WT007 | 0 | — | — | |
+| WT008 | 0 | — | — | |
+| WT009 | 0 | — | — | |
+| WT010 | 0 | — | — | |
+| WT011 | 4 | 0 | 4 | liquidator/user pairs distinguished by helper functions |
+| WT012 | 2 | 2 | 0 | `WHITELISTED_SWAP_PROGRAMS.to_vec()` inside a loop |
+| **Total** | **35** | **15** | **20** | **43% precision** |
 
-Zero true positives on this corpus is the expected result and not a
-disappointment: `escrow` is a reference implementation, `anchor-misc` is
-Anchor's own test suite, and `drift` is audited production code. A tool that
-reported genuine criticals here would more likely be wrong than lucky. What the
-corpus measures is the **noise floor**, and six findings across 76,000 lines is
-the number that matters.
+By program: `escrow` **0**, `anchor-misc` 13, `drift` 22.
 
-### Every corpus finding, triaged
+`escrow` staying at zero matters more than the totals. It is a small, correct,
+idiomatic program — the closest thing the corpus has to the code a user will
+point this at first — and a tool that greets them with findings on it does not
+get a second run.
 
-| # | Rule | Location | Code | Verdict |
-|---|---|---|---|---|
-| 1 | WT003 | `drift` `if_staker.rs:346` | `transfer_config.current_epoch_transfer += shares` | **FP** — bounded by `validate_transfer(shares)?` two lines above. The check is in a called method, which is the documented intraprocedural limit (ADR-001). |
-| 2 | WT003 | `drift` `user.rs:3648` | `**authority.to_account_info().try_borrow_mut_lamports()? += reclaim_amount` | **FP** — lamport balances are bounded by total SOL supply, so this addition cannot reach `u64::MAX`. |
-| 3–6 | WT003 | `anchor-misc` `misc/lib.rs:285-286`, `misc-optional/lib.rs:296,302` | `**data.try_borrow_mut_lamports()? -= 1` | **FP** — Anchor's own test program moving one lamport. An underflow would be caught by the runtime's lamport-conservation check before it could do harm. |
+### The true positives are real, and they are in test code
 
-All six are one pattern: **raw lamport arithmetic**. That is a deliberate
-retained cost. `lamports` stays in the value-word list because manual lamport
-transfers that underflow are a genuine bug class, and the alternative — dropping
-the word — would trade six documented false positives for an entire silent
-class of misses.
+Thirteen of the fifteen are in Anchor's own test suite, which deliberately
+exercises the patterns the rules describe: `init_if_needed` with an
+unconditional write, and `bump = <instruction argument>`. They are correct
+findings about code written to demonstrate exactly those constructs. Nobody is
+exploiting Anchor's test fixtures, but the rules did their job.
+
+The other two are drift's `WHITELISTED_SWAP_PROGRAMS.to_vec()` inside a loop —
+a genuine, if minor, compute inefficiency in production code.
+
+### Every false positive, and why it survives
+
+| Rule | Count | Cause |
+|---|---|---|
+| WT005 | 15 | **Permissionless cranks.** Drift's `UpdateUserFuelBonus` and friends take an `authority` signer that is the *caller*, while `user.authority` belongs to someone else. The rule sees a stored key and a same-named account and infers a relationship that was never intended. Separating this from the genuine article needs intent, not syntax. |
+| WT011 | 4 | **Distinguished through a helper.** `is_stats_for_user(&filler, &filler_stats)?` asserts the accounts differ inside a function this analyser does not follow (ADR-001). |
+| WT003 | 1 | **Bounded by a called method.** `transfer_config.validate_transfer(shares)?` two lines above the arithmetic. Same limit. |
+
+All twenty share one root cause: **the check exists, in a function Wheeltap does
+not follow.** That is the intraprocedural boundary set in ADR-001, and it is why
+these rules report `confidence: medium` rather than high.
 
 ### What was tuned out, and what it cost
 
-Two false-positive classes were found by running against the corpus and removed
-by tightening the rules rather than by adjusting fixtures:
+Nine false-positive classes were found by running against the corpus and removed
+by tightening the rules — never by adjusting a fixture:
 
-| Removed | Findings eliminated | What it cost |
-|---|---|---|
-| WT001 matching on authority-like **names** alone | 66 | The `known_gaps/WT001_unreferenced_admin` case — a real vulnerability now missed. |
-| WT002 treating `load`/`load_mut`/`load_init` as raw reads | 18 | Nothing measurable. These are `AccountLoader`'s validating API. |
+| Rule | Removed | Findings eliminated | What it cost |
+|---|---|---|---|
+| WT001 | matching on authority-like **names** alone | 66 | `known_gaps/WT001_unreferenced_admin` — a real vulnerability now missed |
+| WT005 | reporting accounts under `init` | ~50 | nothing; there is no prior state to check |
+| WT005 | ignoring constraints on the **counterparty** | 65 | nothing |
+| WT005 | ignoring the zero-copy `account.load()?.field` form | 37 | nothing |
+| WT005 | reporting instructions holding two accounts of one type | 30 | genuine cases where two same-typed accounts *should* be related |
+| WT002 | treating `load`/`load_mut` as raw reads | 18 | nothing; that is `AccountLoader`'s validating API |
+| WT011 | checking constraints but not handlers | 8 | nothing |
+| WT003 | flagging raw lamport arithmetic | 8 | underflow in a hand-rolled lamport transfer |
+| WT003 | *(reversed a Phase 2 decision — see below)* | | |
 
-The 66 broke down as `mint_authority`/`freeze_authority` on `init` — the
-authority being *assigned to a new mint*, not one authorising the call — and
-drift's `drift_signer`, a program-derived signer the program signs for itself.
-Reporting 66 criticals on correct code to catch one true positive is a bad
-trade, and the true positive is documented in `fixtures/known_gaps/` rather than
-quietly dropped.
+**On reversing the lamport decision.** Phase 2 kept `lamports` in the value-word
+list deliberately, documenting six false positives as an acceptable cost. Phase 3
+overturned that: writing WT008's *safe* fixture — correct, careful close code —
+produced three more false positives from WT003, and the safe corpus is an
+absolute gate rather than a statistic. With nine examples and none genuine, the
+evidence had changed.
+
+The structural argument was there to be made all along: lamport balances are
+bounded by the total supply of SOL, so an addition cannot reach `u64::MAX`, and
+the runtime enforces conservation of lamports across a transaction, so an
+underflowing subtraction is rejected before it settles. Neither argument applies
+to a balance the program tracks itself, which is what the rule is for.
 
 ### The absolute gate
 
-The safe fixture corpus is not a statistic but a build failure: **no safe
-fixture may be flagged by any rule**, enforced globally across every detector in
-`tests/fixtures.rs`. It currently passes with zero findings.
+The safe fixture corpus is not a statistic but a build failure: **no safe fixture
+may be flagged by any rule**, enforced globally across every detector in
+`tests/fixtures.rs`. It passes with zero findings — and it was WT003 firing
+inside WT008's safe fixture that caught the lamport problem, which is precisely
+the cross-detector failure the global gate exists for.
 
 ## Validation against a published audit
 

@@ -3,10 +3,9 @@
 One page per rule: what it finds, why it matters, a vulnerable example, a fixed
 example, and its known limits.
 
-**Nothing is implemented yet.** This file is written detector by detector, at
-implementation time, per the build order below. A rule appears here only once its
-true-positive and false-positive fixtures pass — `PROGRESS.md` is the live status
-table.
+Every rule here is implemented, and each was written fixtures-first: the
+vulnerable case, then at least two safe cases a naive implementation would flag,
+then this entry, then the detector. `PROGRESS.md` is the live status table.
 
 ## Reading a finding
 
@@ -33,28 +32,26 @@ A Critical finding at Low confidence is worth a human minute. A Low finding at
 High confidence is worth a lint fix. They are different axes and Wheeltap never
 collapses them into one number.
 
-## Build order
+## The catalogue
 
-Ordered by ratio of security value to implementation difficulty.
-
-| ID | Name | Severity | Phase | Status |
+| ID | Name | Severity | Confidence | Status |
 |---|---|---|---|---|
-| WT001 | Missing signer check | Critical | 2 | not started |
-| WT002 | Missing owner check | Critical | 2 | not started |
-| WT003 | Unchecked arithmetic | High | 2 | not started |
-| WT004 | Account reinitialisation | High | 3 | not started |
-| WT005 | Missing `has_one` / constraint | High | 3 | not started |
-| WT006 | Non-canonical PDA bump | High | 3 | not started |
-| WT007 | Arbitrary CPI target | Critical | 3 | not started |
-| WT008 | Missing rent-exemption / close handling | Medium | 3 | not started |
-| WT009 | Sysvar spoofing | High | 3 | not started |
-| WT010 | Unsafe `AccountInfo` deserialisation | High | 3 | not started |
-| WT011 | Duplicate mutable accounts | Medium | 3 | not started |
-| WT012 | Inefficient allocation in loop | Low | 3 | not started |
+| WT001 | Missing signer check | Critical | High | implemented |
+| WT002 | Missing owner check | Critical | Medium | implemented |
+| WT003 | Unchecked arithmetic | High | Medium | implemented |
+| WT004 | Account reinitialisation | High | Medium | implemented |
+| WT005 | Missing `has_one` constraint | High | Medium | implemented |
+| WT006 | Non-canonical PDA bump | High | High | implemented |
+| WT007 | Arbitrary CPI target | Critical | High | implemented |
+| WT008 | Unsafe account close | Medium | Medium | implemented |
+| WT009 | Sysvar spoofing | High | High | implemented |
+| WT010 | Unchecked deserialisation | High | High | implemented |
+| WT011 | Duplicate mutable accounts | Medium | Medium | implemented |
+| WT012 | Allocation in a loop | Low | Medium | implemented |
 
-Ten implemented rules is the minimum bar; twelve is the target. Three excellent
-detectors beat twelve noisy ones, and that trade will be made in favour of
-quality if it comes to it.
+All twelve are implemented, each with vulnerable fixtures it must catch and safe
+fixtures it must not flag. Measured noise on 76,381 lines of third-party code is
+in [`BENCHMARKS.md`](BENCHMARKS.md).
 
 ---
 
@@ -314,6 +311,529 @@ overflow-checks = true
 
 - [Solana: overflow and underflow](https://solana.com/developers/courses/program-security/overflow-underflow)
 - [Rust: `overflow-checks`](https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks)
+
+---
+
+### WT004 — Account reinitialisation
+
+**Severity:** High · **Confidence:** Medium · **Since:** v0.1
+
+#### What it finds
+
+`init_if_needed` on one of the program's own state accounts, where no handler
+using that account list checks whether the account already holds data.
+
+#### Why it matters
+
+`init_if_needed` creates the account if it is absent and runs the handler either
+way. A handler that cannot tell the two cases apart will overwrite live state.
+
+The attack is one call: pass someone else's existing account, Anchor skips
+creation because it exists, and the handler assigns `profile.authority =
+payer.key()` over the top. The account is now yours.
+
+#### Vulnerable
+
+```rust
+#[account(init_if_needed, payer = payer, space = 8 + Profile::INIT_SPACE, ...)]
+pub profile: Account<'info, Profile>,
+
+// ...
+profile.authority = ctx.accounts.payer.key();   // unconditional
+```
+
+#### Fixed
+
+```rust
+if profile.authority == Pubkey::default() {
+    profile.authority = ctx.accounts.payer.key();   // fresh: claim it
+} else {
+    require_keys_eq!(profile.authority, ctx.accounts.payer.key(), Error::NotOwner);
+}
+```
+
+#### Limits
+
+- **Token accounts are excluded**, and this is what makes the rule usable.
+  Creating an associated token account on demand is *the* idiomatic use of
+  `init_if_needed` and appears in nearly every program that moves tokens. The
+  rule fires only when the inner type is a struct declared `#[account]` in the
+  scanned program — a `TokenAccount` belongs to the token program and its state
+  is not ours to clobber.
+- The guard is recognised syntactically (`Pubkey::default()`, `require_keys_eq!`,
+  `is_initialized`, a discriminator test). A guard spelled some other way reads
+  as absent.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT004) -- fields are idempotent; reinitialisation is intended
+```
+
+#### References
+
+- [Solana: reinitialization attacks](https://solana.com/developers/courses/program-security/reinitialization-attacks)
+
+---
+
+### WT005 — Missing `has_one` constraint
+
+**Severity:** High · **Confidence:** Medium · **Since:** v0.1
+
+#### What it finds
+
+An account whose state stores a `Pubkey` field, where the same instruction also
+takes an account by that name, and nothing checks that the two match.
+
+#### Why it matters
+
+`Treasury { authority: Pubkey }` is a claim: this treasury belongs to that key.
+If the instruction takes both a treasury and an `authority` and never compares
+them, the claim is documentation.
+
+The signature can be perfectly real and the check still absent — sign with your
+own key, pass someone else's treasury, and the field that would have stopped you
+was never read.
+
+#### Vulnerable
+
+```rust
+#[derive(Accounts)]
+pub struct Withdraw<'info> {
+    #[account(mut)]
+    pub treasury: Account<'info, Treasury>,   // stores `authority: Pubkey`
+    pub authority: Signer<'info>,             // signs, but is never compared
+}
+```
+
+#### Fixed
+
+```rust
+#[account(mut, has_one = authority)]
+pub treasury: Account<'info, Treasury>,
+```
+
+`constraint = treasury.authority == authority.key()` and deriving the treasury's
+address from the authority with `seeds` both count, and are not flagged.
+
+#### Limits
+
+This rule has the widest gap between what it can see and what it must infer, and
+its exclusions reflect that:
+
+- **Accounts being created are excluded.** `init` means the handler is about to
+  *write* those keys; there is nothing yet to check them against.
+- **Only accounts the instruction writes are considered.**
+- **An instruction holding two accounts of the same type is skipped.** Drift's
+  `FillOrder` takes a `filler` and a `user`, both `AccountLoader<User>`, and its
+  `authority` signs for the filler alone — so `user` deliberately has no
+  relationship to it.
+- The assertion is recognised on either account, in constraints or in the
+  handler, and through the zero-copy `account.load()?.field` form.
+
+**Known false positive: permissionless cranks.** Where a signer named
+`authority` is the *caller* rather than the account's owner — drift's
+`UpdateUserFuelBonus` and similar — this rule reports a relationship that was
+never intended. Fifteen of these remain on drift and are listed in
+`docs/BENCHMARKS.md`. Separating them from the real thing needs intent, not
+syntax.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT005) -- permissionless crank; the signer is the caller
+```
+
+#### References
+
+- [Solana: account data matching](https://solana.com/developers/courses/program-security/account-data-matching)
+
+---
+
+### WT006 — Non-canonical PDA bump
+
+**Severity:** High · **Confidence:** High · **Since:** v0.1
+
+#### What it finds
+
+`bump = <expr>` where the expression reads an argument declared in
+`#[instruction(...)]` — that is, a bump the caller supplies.
+
+#### Why it matters
+
+`find_program_address` returns the *canonical* bump: the highest byte that puts
+the derived address off the curve. It is not the only byte that works. Several
+usually produce valid, distinct addresses for the same seeds.
+
+Letting the caller choose the bump lets them choose which address to use. They
+create a second account for the same logical seeds — passing every constraint,
+holding its own state, and invisible to every other instruction, which looks up
+the canonical one.
+
+#### Vulnerable
+
+```rust
+#[instruction(market_bump: u8)]
+// ...
+#[account(init, seeds = [b"market", creator.key().as_ref()], bump = market_bump)]
+pub market: Account<'info, Market>,
+```
+
+#### Fixed
+
+```rust
+#[account(init, seeds = [b"market", creator.key().as_ref()], bump)]
+pub market: Account<'info, Market>,
+// then store it: market.bump = ctx.bumps.market;
+```
+
+#### Limits
+
+- **`bump = account.bump` is not flagged**, and getting this wrong would make
+  the rule useless. Reading back the bump the program itself stored at creation
+  is correct, cheaper than re-deriving, and ubiquitous — drift does it 147 times
+  and escrow does it too. The rule distinguishes instruction data from stored
+  state by matching the argument name on a word boundary, rejecting a leading
+  `.`.
+- A bump passed through a struct of instruction data, rather than named directly
+  as an argument, is missed.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT006) -- bump validated against find_program_address above
+```
+
+#### References
+
+- [Solana: bump seed canonicalization](https://solana.com/developers/courses/program-security/bump-seed-canonicalization)
+
+---
+
+### WT007 — Arbitrary CPI target
+
+**Severity:** Critical · **Confidence:** High · **Since:** v0.1
+
+#### What it finds
+
+An unchecked account with no `address` constraint that is passed as the *program*
+to a `CpiContext` constructor, `invoke`, or `invoke_signed`.
+
+#### Why it matters
+
+A cross-program invocation carries the caller's authority with it. If the callee
+is whatever account the caller supplied, the caller chooses who receives that
+authority — including their own program.
+
+When the invocation is signed with a PDA's seeds, the attacker's program is
+handed the vault's signature and can do anything the vault may do.
+
+#### Vulnerable
+
+```rust
+/// CHECK: the token program to call
+pub target_program: AccountInfo<'info>,
+
+// ...
+CpiContext::new_with_signer(ctx.accounts.target_program.to_account_info(), accounts, &[seeds])
+```
+
+#### Fixed
+
+```rust
+pub token_program: Program<'info, Token>,   // Anchor asserts the address
+```
+
+Or `#[account(address = expected::ID)]` where no Anchor type exists.
+
+#### Limits
+
+- Only the **first** argument of a CPI constructor is the callee. Accounts passed
+  *to* the CPI are ordinary and are not flagged — that distinction is what keeps
+  this rule off every program that makes a transfer.
+- A program account stored in a variable before the call, or dispatched through a
+  match, is missed.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT007) -- callee verified against a whitelist above
+```
+
+#### References
+
+- [Solana: arbitrary CPI](https://solana.com/developers/courses/program-security/arbitrary-cpi)
+
+---
+
+### WT008 — Unsafe account close
+
+**Severity:** Medium · **Confidence:** Medium · **Since:** v0.1
+
+#### What it finds
+
+A handler that sets an account's lamports to zero without also clearing it —
+no `assign`, no `realloc(0)`, no zeroing of the data, and no `close =`
+constraint on the account list.
+
+#### Why it matters
+
+Draining the lamports is not closing the account. The runtime reclaims accounts
+at the *end* of a transaction, and only if the balance is zero. Until then the
+data is intact.
+
+So the attacker calls the close instruction and, in the same transaction, sends
+a few lamports back. The account survives with all its state — a position that
+has been paid out and still looks unpaid.
+
+#### Vulnerable
+
+```rust
+**position.try_borrow_mut_lamports()? = 0;
+**destination.try_borrow_mut_lamports()? += balance;
+// data untouched; account revivable in the same transaction
+```
+
+#### Fixed
+
+```rust
+#[account(mut, close = owner)]
+pub position: Account<'info, Position>,
+```
+
+#### Limits
+
+- **Moving lamports is not closing.** The rule fires on assignment to zero, not
+  on `-=` or `+=`, so a program that pays people is not flagged.
+- Data clearing is recognised syntactically (`assign`, `realloc(0`, `fill(0)`,
+  `sol_memset`, the closed-account discriminator). An unusual spelling reads as
+  absent.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT008) -- account is zeroed by the helper below
+```
+
+#### References
+
+- [Solana: closing accounts](https://solana.com/developers/courses/program-security/closing-accounts)
+
+---
+
+### WT009 — Sysvar spoofing
+
+**Severity:** High · **Confidence:** High · **Since:** v0.1
+
+#### What it finds
+
+A field named exactly for a sysvar — `clock`, `rent`, `instructions`,
+`slot_hashes` and the rest — that is an unchecked account with no `address`
+constraint.
+
+#### Why it matters
+
+Sysvars are ordinary accounts at fixed, well-known addresses. Nothing about
+passing one is privileged, so a caller can pass a different account and the
+program reads whatever it holds.
+
+A substituted clock unlocks a vesting schedule that has not vested. A substituted
+rent sysvar defeats a rent-exemption check.
+
+#### Vulnerable
+
+```rust
+/// CHECK: the clock sysvar
+pub clock: AccountInfo<'info>,
+```
+
+#### Fixed
+
+```rust
+pub clock: Sysvar<'info, Clock>,
+```
+
+Or `#[account(address = sysvar::instructions::ID)]` for the sysvars Anchor has
+no type for.
+
+#### Limits
+
+- The name must match **exactly**. `clock_authority` and `rent_collector` are
+  ordinary accounts that happen to contain the word, and flagging them would be
+  wrong — so a sysvar passed under an unusual name is missed instead.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT009) -- address asserted in the handler
+```
+
+#### References
+
+- [Solana: sysvar spoofing](https://solana.com/developers/courses/program-security/sysvar-spoofing)
+
+---
+
+### WT010 — Unchecked deserialisation
+
+**Severity:** High · **Confidence:** High · **Since:** v0.1
+
+#### What it finds
+
+Calls to deserialisation entry points that skip the discriminator:
+`try_deserialize_unchecked`, `try_from_slice_unchecked`, `try_from_unchecked`,
+`deserialize_unchecked`, `load_unchecked`.
+
+#### Why it matters
+
+Anchor writes an eight-byte discriminator derived from the type name at the
+front of every account it owns, and checks it on the way back in. The
+`_unchecked` variants do not.
+
+Without it, any account owned by the program can be read as any of its types.
+Pass a `UserProfile` where a `Config` is expected and the bytes are
+reinterpreted — typically leaving the attacker's key where the admin key should
+have been. An owner check does not help: the owner really is this program.
+
+#### Vulnerable
+
+```rust
+let config = Config::try_deserialize_unchecked(&mut data)?;
+require_keys_eq!(config.admin, ctx.accounts.caller.key(), Error::NotAdmin);
+```
+
+#### Fixed
+
+```rust
+let config = Config::try_deserialize(&mut data)?;
+```
+
+#### Limits
+
+- Purely lexical: the rule looks for the call, not for whether the discriminator
+  is checked some other way. The `_unchecked` variants are legitimate on an
+  account the program has just created and knows the layout of, and those are
+  false positives.
+- One finding per handler, at the handler's location rather than the call's.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT010) -- account was created by this instruction
+```
+
+#### References
+
+- [Anchor: account types](https://www.anchor-lang.com/docs/account-types)
+
+---
+
+### WT011 — Duplicate mutable accounts
+
+**Severity:** Medium · **Confidence:** Medium · **Since:** v0.1
+
+#### What it finds
+
+Two or more mutable accounts of the same program state type in one account list,
+with nothing asserting they are different accounts.
+
+#### Why it matters
+
+Nothing stops a caller passing the same address twice. Anchor deserialises it
+once per field, into independent in-memory copies, and the handler mutates both.
+Whichever is written back last wins, and the other's changes vanish.
+
+In a transfer that means debiting one copy and crediting the other, then
+discarding the debit — free money, in a loop.
+
+#### Vulnerable
+
+```rust
+#[account(mut, has_one = owner)]
+pub from: Account<'info, Balance>,
+#[account(mut)]
+pub to: Account<'info, Balance>,
+```
+
+#### Fixed
+
+```rust
+#[account(mut, has_one = owner, constraint = from.key() != to.key() @ Error::SameAccount)]
+pub from: Account<'info, Balance>,
+```
+
+#### Limits
+
+- **Only mutable accounts count.** Aliasing a read-only account changes nothing.
+- The assertion is recognised in constraints **and in the handler**. Drift
+  compares keys in the handler for all twelve of its transfer and liquidation
+  instructions; checking constraints alone reported every one of them.
+- Two accounts with distinct `seeds` cannot collide and are skipped.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT011) -- aliasing is idempotent here
+```
+
+#### References
+
+- [Solana: duplicate mutable accounts](https://solana.com/developers/courses/program-security/duplicate-mutable-accounts)
+
+---
+
+### WT012 — Allocation in a loop
+
+**Severity:** Low · **Confidence:** Medium · **Since:** v0.1
+
+#### What it finds
+
+`clone`, `to_vec`, `to_owned`, `collect`, or `concat` on a collection-shaped
+receiver, inside a `for`, `while`, or `loop` body.
+
+#### Why it matters
+
+Compute units are a hard per-transaction budget, and heap allocation is expensive
+relative to nearly everything else a program does. Cloning a collection every
+iteration turns a linear pass quadratic, and a program that fits the budget in
+testing stops fitting it once an account grows.
+
+Hygiene rather than a vulnerability — hence Low. But an instruction that runs out
+of compute cannot execute, and for a liquidation or a settlement that is its own
+kind of security problem.
+
+#### Vulnerable
+
+```rust
+for index in 0..pool.weights.len() {
+    let snapshot = pool.weights.clone();   // every iteration
+    ...
+}
+```
+
+#### Fixed
+
+```rust
+let snapshot = pool.weights.clone();
+for index in 0..pool.weights.len() { ... }
+```
+
+#### Limits
+
+- The receiver must **look like a collection** by name, since there are no types
+  (ADR-001). Copying a `Pubkey` in a loop is not an allocation and must not be
+  flagged, so a collection with an unhelpful name is missed instead.
+- Allocation inside a function *called* from the loop is not seen.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT012) -- bounded to a handful of iterations
+```
+
+#### References
+
+- [Solana: compute budget](https://solana.com/docs/core/fees#compute-budget)
 
 ---
 

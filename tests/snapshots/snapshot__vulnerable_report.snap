@@ -41,37 +41,20 @@ expression: json
     },
     {
       "column": 9,
-      "confidence": "medium",
-      "file": "WT001_missing_signer/vault.rs",
-      "id": "52995203d771434d",
-      "item_path": "vault::withdraw",
-      "line": 25,
-      "message": "`**vault.to_account_info().try_borrow_mut_lamports()? -= a...` in `withdraw` uses `-=` on a value that holds funds. In a release build this wraps silently rather than failing.",
+      "confidence": "high",
+      "file": "WT007_arbitrary_cpi/router.rs",
+      "id": "2f064f6836edaf41",
+      "item_path": "Forward.target_program",
+      "line": 55,
+      "message": "`Forward.target_program` is invoked as a program by `forward`, but its address is never established. The caller chooses which program receives the invocation, and any signing seeds this program supplies go with it.",
       "references": [
-        "https://solana.com/developers/courses/program-security/overflow-underflow",
-        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
+        "https://solana.com/developers/courses/program-security/arbitrary-cpi",
+        "https://github.com/coral-xyz/sealevel-attacks"
       ],
-      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
-      "rule": "WT003",
-      "severity": "high",
-      "snippet": "        **vault.to_account_info().try_borrow_mut_lamports()? -= amount;"
-    },
-    {
-      "column": 9,
-      "confidence": "medium",
-      "file": "WT001_missing_signer/vault.rs",
-      "id": "ef63731e8172fae2",
-      "item_path": "vault::withdraw",
-      "line": 26,
-      "message": "`**ctx.accounts.destination.try_borrow_mut_lamports()? += ...` in `withdraw` uses `+=` on a value that holds funds. In a release build this wraps silently rather than failing.",
-      "references": [
-        "https://solana.com/developers/courses/program-security/overflow-underflow",
-        "https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks"
-      ],
-      "remediation": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.",
-      "rule": "WT003",
-      "severity": "high",
-      "snippet": "        **ctx.accounts.destination.try_borrow_mut_lamports()? += amount;"
+      "remediation": "Declare the callee as `Program<'info, T>`, or `Interface<'info, T>` where several implementations are accepted. Where no Anchor type exists, pin the address with `#[account(address = expected::ID)]`.",
+      "rule": "WT007",
+      "severity": "critical",
+      "snippet": "    pub target_program: AccountInfo<'info>,"
     },
     {
       "column": 24,
@@ -174,23 +157,166 @@ expression: json
       "rule": "WT003",
       "severity": "high",
       "snippet": "        ctx.accounts.pool.remaining_rewards -= rewards;"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT004_reinitialisation/registry.rs",
+      "id": "410ab9cbe9e9fbf2",
+      "item_path": "CreateProfile.profile",
+      "line": 37,
+      "message": "`CreateProfile.profile` uses `init_if_needed` on program state, and no handler checks whether the account already holds data. A caller can pass an existing account and have the handler overwrite state that belongs to someone else.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/reinitialization-attacks",
+        "https://www.anchor-lang.com/docs/account-constraints"
+      ],
+      "remediation": "Ask whether the account is already initialised before writing the fields that establish ownership — compare the stored authority against `Pubkey::default()`, or require it to match the caller. Where creation and update are genuinely different operations, give them separate instructions and use plain `init`.",
+      "rule": "WT004",
+      "severity": "high",
+      "snippet": "    pub profile: Account<'info, Profile>,"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT005_missing_has_one/treasury.rs",
+      "id": "0dc13ff4575e2169",
+      "item_path": "Withdraw.treasury",
+      "line": 33,
+      "message": "`Treasury` stores `authority: Pubkey`, and `Withdraw` takes both `treasury` and `authority`, but never checks that they match. The stored key records a relationship the instruction does not enforce, so any `treasury` can be used with any `authority`.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/account-data-matching",
+        "https://www.anchor-lang.com/docs/account-constraints"
+      ],
+      "remediation": "Add `has_one = <field>` to the account that stores the key, or assert it explicitly with `constraint = account.field == other.key()`. Deriving the account's address from the key with `seeds` enforces the same relationship and is stronger still.",
+      "rule": "WT005",
+      "severity": "high",
+      "snippet": "    pub treasury: Account<'info, Treasury>,"
+    },
+    {
+      "column": 9,
+      "confidence": "high",
+      "file": "WT006_non_canonical_bump/market.rs",
+      "id": "f8c3eb4d2afe9cab",
+      "item_path": "OpenMarket.market",
+      "line": 38,
+      "message": "`OpenMarket.market` derives its address with `bump = market_bump`, which comes from the instruction argument `market_bump`. The caller chooses the bump, so they can derive several valid addresses for the same seeds. Use a bare `bump` and let Anchor supply the canonical one.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/bump-seed-canonicalization",
+        "https://www.anchor-lang.com/docs/pdas"
+      ],
+      "remediation": "Write `bump` on its own and let Anchor derive the canonical bump, storing `ctx.bumps.<account>` if later instructions need it. Where a bump is re-derived, read it from the account (`bump = account.bump`) rather than from the caller.",
+      "rule": "WT006",
+      "severity": "high",
+      "snippet": "        bump = market_bump,"
+    },
+    {
+      "column": 9,
+      "confidence": "high",
+      "file": "WT009_sysvar_spoofing/clocked.rs",
+      "id": "54d2cd9bdf500a57",
+      "item_path": "Claim.clock",
+      "line": 43,
+      "message": "`Claim.clock` is named for a sysvar but is an unchecked account with no address constraint. Sysvars live at fixed addresses and are otherwise ordinary accounts, so a caller can substitute one with contents of their choosing.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/sysvar-spoofing",
+        "https://docs.rs/anchor-lang/latest/anchor_lang/accounts/sysvar/struct.Sysvar.html"
+      ],
+      "remediation": "Use `Sysvar<'info, Clock>` and its siblings, which assert the address. For sysvars Anchor has no type for, pin it with `#[account(address = sysvar::instructions::ID)]`.",
+      "rule": "WT009",
+      "severity": "high",
+      "snippet": "    pub clock: AccountInfo<'info>,"
+    },
+    {
+      "column": 12,
+      "confidence": "high",
+      "file": "WT010_unchecked_deserialisation/config_store.rs",
+      "id": "1e42fc9635a63add",
+      "item_path": "config_store::read_config",
+      "line": 21,
+      "message": "`read_config` calls `try_deserialize_unchecked`, which does not verify the account discriminator. Any account owned by this program can then be read as this type, regardless of what it actually is.",
+      "references": [
+        "https://www.anchor-lang.com/docs/account-types",
+        "https://github.com/coral-xyz/sealevel-attacks"
+      ],
+      "remediation": "Use `try_deserialize`, which verifies the discriminator, or the typed `Account<'info, T>` which does it before the handler runs. The `_unchecked` variants are for accounts you have just created and know the layout of.",
+      "rule": "WT010",
+      "severity": "high",
+      "snippet": "    pub fn read_config(ctx: Context<ReadConfig>) -> Result<()> {"
+    },
+    {
+      "column": 12,
+      "confidence": "medium",
+      "file": "WT008_unsafe_close/closer.rs",
+      "id": "8af310d24a646694",
+      "item_path": "closer::close_position",
+      "line": 23,
+      "message": "`close_position` sets an account's lamports to zero without clearing its data. The runtime only reclaims the account at the end of the transaction, so a caller can send lamports back within the same transaction and keep the account, its data intact.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/closing-accounts",
+        "https://www.anchor-lang.com/docs/account-constraints"
+      ],
+      "remediation": "Prefer Anchor's `close = destination` constraint, which drains the lamports, zeroes the data, and assigns the account to the system program. Closing by hand requires all three — zeroing the balance alone leaves the account revivable within the same transaction.",
+      "rule": "WT008",
+      "severity": "medium",
+      "snippet": "    pub fn close_position(ctx: Context<ClosePosition>) -> Result<()> {"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT011_duplicate_mutable/transfer.rs",
+      "id": "ed7f4c41ecffac78",
+      "item_path": "Transfer.from",
+      "line": 34,
+      "message": "`Transfer` takes 2 mutable `Balance` accounts (from, to) with nothing asserting they differ. A caller can pass the same address for all of them; Anchor deserialises it once per field, and only the last write survives.",
+      "references": [
+        "https://solana.com/developers/courses/program-security/duplicate-mutable-accounts",
+        "https://github.com/coral-xyz/sealevel-attacks"
+      ],
+      "remediation": "Assert that the accounts differ: `constraint = first.key() != second.key()`. Anchor cannot infer it, because passing the same account twice is legitimate in other instructions.",
+      "rule": "WT011",
+      "severity": "medium",
+      "snippet": "    pub from: Account<'info, Balance>,"
+    },
+    {
+      "column": 28,
+      "confidence": "medium",
+      "file": "WT012_alloc_in_loop/rebalance.rs",
+      "id": "61d128c53432a529",
+      "item_path": "rebalance::rebalance",
+      "line": 23,
+      "message": "`pool.weights.clone()` in `rebalance` allocates on every iteration. Hoist it out of the loop, or borrow instead — compute units are a hard per-transaction budget.",
+      "references": [
+        "https://solana.com/docs/core/fees#compute-budget"
+      ],
+      "remediation": "Hoist the allocation out of the loop, or borrow instead of cloning. Where the collection is only read, iterate over a reference.",
+      "rule": "WT012",
+      "severity": "low",
+      "snippet": "            let snapshot = pool.weights.clone();"
     }
   ],
   "schema": "1.0",
   "summary": {
     "by_severity": [
       {
-        "count": 2,
+        "count": 3,
         "severity": "critical"
       },
       {
-        "count": 8,
+        "count": 11,
         "severity": "high"
+      },
+      {
+        "count": 2,
+        "severity": "medium"
+      },
+      {
+        "count": 1,
+        "severity": "low"
       }
     ],
-    "files_scanned": 3,
-    "findings": 10,
-    "lines_scanned": 198
+    "files_scanned": 12,
+    "findings": 17,
+    "lines_scanned": 670
   },
   "tool": {
     "name": "wheeltap",
