@@ -36,3 +36,38 @@ fn vulnerable_corpus_json_report() {
 
     insta::assert_json_snapshot!("vulnerable_report", json);
 }
+
+/// Markdown output for the vulnerable corpus.
+///
+/// This is what a reviewer reads in a CI log, so a diff here is a change to the
+/// thing people actually look at.
+#[test]
+fn vulnerable_corpus_markdown_report() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/vulnerable");
+    let report = wheeltap_core::engine::run(&ProgramContext::scan(&path), &wheeltap_rules::all());
+
+    insta::assert_snapshot!(
+        "vulnerable_markdown",
+        wheeltap_report::markdown::render(&report)
+    );
+}
+
+/// SARIF output for the vulnerable corpus.
+///
+/// Snapshotted as well as schema-validated: the schema says the shape is legal,
+/// and this says the content did not change by accident.
+#[test]
+fn vulnerable_corpus_sarif_report() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/vulnerable");
+    let report = wheeltap_core::engine::run(&ProgramContext::scan(&path), &wheeltap_rules::all());
+    let rules: Vec<_> = wheeltap_rules::all()
+        .iter()
+        .map(|detector| detector.metadata())
+        .collect();
+
+    let json: serde_json::Value =
+        serde_json::from_str(&wheeltap_report::sarif::render(&report, &rules).expect("render"))
+            .expect("valid JSON");
+
+    insta::assert_json_snapshot!("vulnerable_sarif", json);
+}

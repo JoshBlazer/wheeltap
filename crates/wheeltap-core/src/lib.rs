@@ -15,6 +15,7 @@
 //! The detectors themselves live in `wheeltap-rules`, which depends on this
 //! crate; the engine takes them as a parameter so the dependency stays one-way.
 
+pub mod baseline;
 pub mod diag;
 pub mod engine;
 pub mod finding;
@@ -22,6 +23,7 @@ pub mod loader;
 pub mod model;
 pub mod source;
 pub mod summary;
+pub mod suppress;
 
 pub use engine::{Detector, RuleMetadata};
 pub use finding::{Confidence, Finding, FindingId, Severity};

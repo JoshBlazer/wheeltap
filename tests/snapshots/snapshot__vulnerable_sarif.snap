@@ -1,0 +1,873 @@
+---
+source: tests/snapshot.rs
+expression: json
+---
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "toolExecutionNotifications": []
+        }
+      ],
+      "results": [
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT001_missing_signer/vault.rs"
+                },
+                "region": {
+                  "endLine": 37,
+                  "snippet": {
+                    "text": "    pub authority: AccountInfo<'info>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 37
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`Withdraw.authority` is verified by a `has_one` constraint but is never required to sign, and no account in `Withdraw` signs at all. The constraint proves which account this is; it does not prove the holder authorised anything. Public keys are public, so any caller can pass this one."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "2d70e5e62f325c65"
+          },
+          "properties": {
+            "confidence": "high",
+            "itemPath": "Withdraw.authority"
+          },
+          "ruleId": "WT001",
+          "ruleIndex": 0
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT002_missing_owner/oracle.rs"
+                },
+                "region": {
+                  "endLine": 44,
+                  "snippet": {
+                    "text": "    pub oracle: AccountInfo<'info>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 44
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`Borrow.oracle` is an unvalidated account whose data is deserialised in `borrow` without establishing the owning program. An attacker can pass an account owned by their own program with any contents they like."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "ffe1e9d53c4e3354"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "Borrow.oracle"
+          },
+          "ruleId": "WT002",
+          "ruleIndex": 1
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT007_arbitrary_cpi/router.rs"
+                },
+                "region": {
+                  "endLine": 55,
+                  "snippet": {
+                    "text": "    pub target_program: AccountInfo<'info>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 55
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`Forward.target_program` is invoked as a program by `forward`, but its address is never established. The caller chooses which program receives the invocation, and any signing seeds this program supplies go with it."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "2f064f6836edaf41"
+          },
+          "properties": {
+            "confidence": "high",
+            "itemPath": "Forward.target_program"
+          },
+          "ruleId": "WT007",
+          "ruleIndex": 6
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                },
+                "region": {
+                  "endLine": 23,
+                  "snippet": {
+                    "text": "        stake.amount = stake.amount + amount;"
+                  },
+                  "startColumn": 24,
+                  "startLine": 23
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`stake.amount + amount` in `deposit` uses `+` on a value that holds funds. In a release build this wraps silently rather than failing."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "d2c5e1a8cb484e2e"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "staking::deposit"
+          },
+          "ruleId": "WT003",
+          "ruleIndex": 2
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                },
+                "region": {
+                  "endLine": 24,
+                  "snippet": {
+                    "text": "        stake.total_deposited += amount;"
+                  },
+                  "startColumn": 9,
+                  "startLine": 24
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`stake.total_deposited += amount` in `deposit` uses `+=` on a value that holds funds. In a release build this wraps silently rather than failing."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "edb68547df2c0203"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "staking::deposit"
+          },
+          "ruleId": "WT003",
+          "ruleIndex": 2
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                },
+                "region": {
+                  "endLine": 27,
+                  "snippet": {
+                    "text": "        pool.total_staked = pool.total_staked + amount;"
+                  },
+                  "startColumn": 29,
+                  "startLine": 27
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`pool.total_staked + amount` in `deposit` uses `+` on a value that holds funds. In a release build this wraps silently rather than failing."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "8855ca683806d7ee"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "staking::deposit"
+          },
+          "ruleId": "WT003",
+          "ruleIndex": 2
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                },
+                "region": {
+                  "endLine": 36,
+                  "snippet": {
+                    "text": "        let rewards = stake.amount * ctx.accounts.pool.reward_rate * elapsed as u64;"
+                  },
+                  "startColumn": 23,
+                  "startLine": 36
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`stake.amount * ctx.accounts.pool.reward_rate * elapsed as...` in `claim` uses `*` on a value that holds funds. In a release build this wraps silently rather than failing."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "4d4451207675e9ee"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "staking::claim"
+          },
+          "ruleId": "WT003",
+          "ruleIndex": 2
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                },
+                "region": {
+                  "endLine": 38,
+                  "snippet": {
+                    "text": "        stake.pending_rewards += rewards;"
+                  },
+                  "startColumn": 9,
+                  "startLine": 38
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`stake.pending_rewards += rewards` in `claim` uses `+=` on a value that holds funds. In a release build this wraps silently rather than failing."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "a7d974c1d5c33e83"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "staking::claim"
+          },
+          "ruleId": "WT003",
+          "ruleIndex": 2
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                },
+                "region": {
+                  "endLine": 41,
+                  "snippet": {
+                    "text": "        ctx.accounts.pool.remaining_rewards -= rewards;"
+                  },
+                  "startColumn": 9,
+                  "startLine": 41
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`ctx.accounts.pool.remaining_rewards -= rewards` in `claim` uses `-=` on a value that holds funds. In a release build this wraps silently rather than failing."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "22ba41310ec76064"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "staking::claim"
+          },
+          "ruleId": "WT003",
+          "ruleIndex": 2
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT004_reinitialisation/registry.rs"
+                },
+                "region": {
+                  "endLine": 37,
+                  "snippet": {
+                    "text": "    pub profile: Account<'info, Profile>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 37
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`CreateProfile.profile` uses `init_if_needed` on program state, and no handler checks whether the account already holds data. A caller can pass an existing account and have the handler overwrite state that belongs to someone else."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "410ab9cbe9e9fbf2"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "CreateProfile.profile"
+          },
+          "ruleId": "WT004",
+          "ruleIndex": 3
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT005_missing_has_one/treasury.rs"
+                },
+                "region": {
+                  "endLine": 33,
+                  "snippet": {
+                    "text": "    pub treasury: Account<'info, Treasury>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 33
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`Treasury` stores `authority: Pubkey`, and `Withdraw` takes both `treasury` and `authority`, but never checks that they match. The stored key records a relationship the instruction does not enforce, so any `treasury` can be used with any `authority`."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "0dc13ff4575e2169"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "Withdraw.treasury"
+          },
+          "ruleId": "WT005",
+          "ruleIndex": 4
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT006_non_canonical_bump/market.rs"
+                },
+                "region": {
+                  "endLine": 38,
+                  "snippet": {
+                    "text": "        bump = market_bump,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 38
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`OpenMarket.market` derives its address with `bump = market_bump`, which comes from the instruction argument `market_bump`. The caller chooses the bump, so they can derive several valid addresses for the same seeds. Use a bare `bump` and let Anchor supply the canonical one."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "f8c3eb4d2afe9cab"
+          },
+          "properties": {
+            "confidence": "high",
+            "itemPath": "OpenMarket.market"
+          },
+          "ruleId": "WT006",
+          "ruleIndex": 5
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT009_sysvar_spoofing/clocked.rs"
+                },
+                "region": {
+                  "endLine": 43,
+                  "snippet": {
+                    "text": "    pub clock: AccountInfo<'info>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 43
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`Claim.clock` is named for a sysvar but is an unchecked account with no address constraint. Sysvars live at fixed addresses and are otherwise ordinary accounts, so a caller can substitute one with contents of their choosing."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "54d2cd9bdf500a57"
+          },
+          "properties": {
+            "confidence": "high",
+            "itemPath": "Claim.clock"
+          },
+          "ruleId": "WT009",
+          "ruleIndex": 8
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT010_unchecked_deserialisation/config_store.rs"
+                },
+                "region": {
+                  "endLine": 21,
+                  "snippet": {
+                    "text": "    pub fn read_config(ctx: Context<ReadConfig>) -> Result<()> {"
+                  },
+                  "startColumn": 12,
+                  "startLine": 21
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`read_config` calls `try_deserialize_unchecked`, which does not verify the account discriminator. Any account owned by this program can then be read as this type, regardless of what it actually is."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "1e42fc9635a63add"
+          },
+          "properties": {
+            "confidence": "high",
+            "itemPath": "config_store::read_config"
+          },
+          "ruleId": "WT010",
+          "ruleIndex": 9
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT008_unsafe_close/closer.rs"
+                },
+                "region": {
+                  "endLine": 23,
+                  "snippet": {
+                    "text": "    pub fn close_position(ctx: Context<ClosePosition>) -> Result<()> {"
+                  },
+                  "startColumn": 12,
+                  "startLine": 23
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`close_position` sets an account's lamports to zero without clearing its data. The runtime only reclaims the account at the end of the transaction, so a caller can send lamports back within the same transaction and keep the account, its data intact."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "8af310d24a646694"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "closer::close_position"
+          },
+          "ruleId": "WT008",
+          "ruleIndex": 7
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT011_duplicate_mutable/transfer.rs"
+                },
+                "region": {
+                  "endLine": 34,
+                  "snippet": {
+                    "text": "    pub from: Account<'info, Balance>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 34
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`Transfer` takes 2 mutable `Balance` accounts (from, to) with nothing asserting they differ. A caller can pass the same address for all of them; Anchor deserialises it once per field, and only the last write survives."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "ed7f4c41ecffac78"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "Transfer.from"
+          },
+          "ruleId": "WT011",
+          "ruleIndex": 10
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "WT012_alloc_in_loop/rebalance.rs"
+                },
+                "region": {
+                  "endLine": 23,
+                  "snippet": {
+                    "text": "            let snapshot = pool.weights.clone();"
+                  },
+                  "startColumn": 28,
+                  "startLine": 23
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`pool.weights.clone()` in `rebalance` allocates on every iteration. Hoist it out of the loop, or borrow instead — compute units are a hard per-transaction budget."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "61d128c53432a529"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "rebalance::rebalance"
+          },
+          "ruleId": "WT012",
+          "ruleIndex": 11
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://github.com/JoshBlazer/wheeltap",
+          "name": "wheeltap",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "An account treated as an authority is never required to sign"
+              },
+              "help": {
+                "text": "Type the account as `Signer<'info>`. If it must stay an `AccountInfo`, require the signature explicitly with `#[account(signer)]` or `constraint = authority.is_signer`."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/signer-auth",
+              "id": "WT001",
+              "name": "Missing signer check",
+              "properties": {
+                "security-severity": "9.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "An account treated as an authority is never required to sign"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Account data is deserialised without verifying the owning program"
+              },
+              "help": {
+                "text": "Use `Account<'info, T>`, which verifies the owner and discriminator before the handler runs. If the account must stay an `AccountInfo`, pin it with `#[account(owner = expected::ID)]` or assert `*account.owner` before reading its data."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/owner-checks",
+              "id": "WT002",
+              "name": "Missing owner check",
+              "properties": {
+                "security-severity": "9.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "Account data is deserialised without verifying the owning program"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Arithmetic on a balance can wrap silently in a release build"
+              },
+              "help": {
+                "text": "Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/overflow-underflow",
+              "id": "WT003",
+              "name": "Unchecked arithmetic",
+              "properties": {
+                "security-severity": "7.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "Arithmetic on a balance can wrap silently in a release build"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "`init_if_needed` on program state, with no check for an already-live account"
+              },
+              "help": {
+                "text": "Ask whether the account is already initialised before writing the fields that establish ownership — compare the stored authority against `Pubkey::default()`, or require it to match the caller. Where creation and update are genuinely different operations, give them separate instructions and use plain `init`."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/reinitialization-attacks",
+              "id": "WT004",
+              "name": "Account reinitialisation",
+              "properties": {
+                "security-severity": "7.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "`init_if_needed` on program state, with no check for an already-live account"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "An account stores a key that the instruction never checks it against"
+              },
+              "help": {
+                "text": "Add `has_one = <field>` to the account that stores the key, or assert it explicitly with `constraint = account.field == other.key()`. Deriving the account's address from the key with `seeds` enforces the same relationship and is stronger still."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/account-data-matching",
+              "id": "WT005",
+              "name": "Missing has_one constraint",
+              "properties": {
+                "security-severity": "7.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "An account stores a key that the instruction never checks it against"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A PDA bump comes from instruction data rather than being derived"
+              },
+              "help": {
+                "text": "Write `bump` on its own and let Anchor derive the canonical bump, storing `ctx.bumps.<account>` if later instructions need it. Where a bump is re-derived, read it from the account (`bump = account.bump`) rather than from the caller."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/bump-seed-canonicalization",
+              "id": "WT006",
+              "name": "Non-canonical PDA bump",
+              "properties": {
+                "security-severity": "7.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "A PDA bump comes from instruction data rather than being derived"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A cross-program invocation targets an account whose address is not pinned"
+              },
+              "help": {
+                "text": "Declare the callee as `Program<'info, T>`, or `Interface<'info, T>` where several implementations are accepted. Where no Anchor type exists, pin the address with `#[account(address = expected::ID)]`."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/arbitrary-cpi",
+              "id": "WT007",
+              "name": "Arbitrary CPI target",
+              "properties": {
+                "security-severity": "9.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "A cross-program invocation targets an account whose address is not pinned"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "An account's lamports are zeroed without its data being cleared"
+              },
+              "help": {
+                "text": "Prefer Anchor's `close = destination` constraint, which drains the lamports, zeroes the data, and assigns the account to the system program. Closing by hand requires all three — zeroing the balance alone leaves the account revivable within the same transaction."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/closing-accounts",
+              "id": "WT008",
+              "name": "Unsafe account close",
+              "properties": {
+                "security-severity": "5.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "An account's lamports are zeroed without its data being cleared"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A sysvar is accepted as an unchecked account with no address constraint"
+              },
+              "help": {
+                "text": "Use `Sysvar<'info, Clock>` and its siblings, which assert the address. For sysvars Anchor has no type for, pin it with `#[account(address = sysvar::instructions::ID)]`."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/sysvar-spoofing",
+              "id": "WT009",
+              "name": "Sysvar spoofing",
+              "properties": {
+                "security-severity": "7.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "A sysvar is accepted as an unchecked account with no address constraint"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Account data is deserialised without checking the discriminator"
+              },
+              "help": {
+                "text": "Use `try_deserialize`, which verifies the discriminator, or the typed `Account<'info, T>` which does it before the handler runs. The `_unchecked` variants are for accounts you have just created and know the layout of."
+              },
+              "helpUri": "https://www.anchor-lang.com/docs/account-types",
+              "id": "WT010",
+              "name": "Unchecked deserialisation",
+              "properties": {
+                "security-severity": "7.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "Account data is deserialised without checking the discriminator"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Two mutable accounts of the same type may be given the same address"
+              },
+              "help": {
+                "text": "Assert that the accounts differ: `constraint = first.key() != second.key()`. Anchor cannot infer it, because passing the same account twice is legitimate in other instructions."
+              },
+              "helpUri": "https://solana.com/developers/courses/program-security/duplicate-mutable-accounts",
+              "id": "WT011",
+              "name": "Duplicate mutable accounts",
+              "properties": {
+                "security-severity": "5.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "Two mutable accounts of the same type may be given the same address"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "A collection is cloned or allocated on every iteration of a loop"
+              },
+              "help": {
+                "text": "Hoist the allocation out of the loop, or borrow instead of cloning. Where the collection is only read, iterate over a reference."
+              },
+              "helpUri": "https://solana.com/docs/core/fees#compute-budget",
+              "id": "WT012",
+              "name": "Allocation in a loop",
+              "properties": {
+                "security-severity": "3.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "A collection is cloned or allocated on every iteration of a loop"
+              }
+            }
+          ],
+          "version": "0.1.0"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

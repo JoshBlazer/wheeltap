@@ -1,8 +1,8 @@
 # Wheeltap — Progress
 
-**Current phase:** 3 complete — next is 4, reporting, suppression, and baselines
+**Current phase:** 4 complete — next is 5, the GitHub Action and distribution
 **Last updated:** 2026-08-12
-**Build status:** green — `fmt --check`, `clippy -D warnings`, and 119 tests pass
+**Build status:** green — `fmt --check`, `clippy -D warnings`, and 155 tests pass
 on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 
 ## Phase status
@@ -13,8 +13,8 @@ on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 | 1 | Loader, parser, program context | **done** | yes | `debug-context` models all three corpus programs accurately; 64 tests |
 | 2 | Detector engine + WT001-WT003 | **done** | yes | `scan fixtures/vulnerable` catches all three; `scan fixtures/safe` reports nothing |
 | 3 | Full detector suite | **done** | yes | All twelve rules implemented; corpus hand-triaged in `docs/BENCHMARKS.md` |
-| 4 | Reporting, suppression, baselines | next | — | Markdown + SARIF, `wheeltap.toml`, inline `wheeltap:allow`, `--baseline` |
-| 5 | GitHub Action and distribution | not started | — | |
+| 4 | Reporting, suppression, baselines | **done** | partly — see note | Markdown + SARIF (schema-validated), suppression, `--baseline`. The stated exit criterion is a SARIF *upload* annotating a PR, which needs the Action from Phase 5 |
+| 5 | GitHub Action and distribution | next | — | Also completes Phase 4's exit criterion by uploading SARIF for real |
 | 6 | Validation, documentation, release | not started | — | |
 
 ## Detector status
@@ -124,16 +124,29 @@ one Phase 2 decision reversed on new evidence.
 - 119 passing tests: 8 fixture gates, 7 corpus, 10 robustness, 2 snapshot, and
   unit coverage across all four crates.
 
+**Phase 4 — output, suppression, baselines.**
+
+- **Markdown reporter**: grouped worst-first, each finding with its snippet,
+  its fix, and its identity inline.
+- **SARIF 2.1.0 reporter**, validated against the official OASIS schema
+  (vendored at `schemas/sarif-2.1.0.json`) in `cargo test`, not only in CI.
+  Carries `partialFingerprints` so GitHub matches an alert across pushes rather
+  than reopening it every time code moves, plus `security-severity` for ranking
+  and parse diagnostics as tool notifications.
+- **Suppression**, both mechanisms: inline `// wheeltap:allow(WT001) -- reason`
+  reaching over attributes and doc comments, and `wheeltap.toml` with rule,
+  glob-path, and severity-override sections. Unknown config keys are an error.
+  `--no-suppress` overrides both.
+- **`--baseline findings.json`**: report only what is new. Verified end to end —
+  scanning the same tree twice against its own baseline reports nothing, moving
+  the code reports nothing, and a genuinely new vulnerability appears.
+- **`--format`, `--severity-threshold`, `--fail-on`, `--config`.**
+
 ## What does not work yet
 
-- **Markdown and SARIF output** — `--format markdown` and `--format sarif` exit
-  2 with "not implemented" (Phase 4).
-- No suppression: neither `// wheeltap:allow(WT001)` comments nor
-  `wheeltap.toml` are read yet (Phase 4). There is currently no way to silence a
-  false positive short of editing the code.
-- No `--baseline` diffing yet, though the identity scheme it needs is built and
-  tested (Phase 4).
-
+- **Not published**: no GitHub Action, and nothing on crates.io (Phase 5).
+- **The audit comparison is unwritten** (Phase 6). `docs/BENCHMARKS.md` has the
+  false-positive measurements but not the credibility exercise.
 - Module paths are resolved within a file only; `mod x;` is not followed to
   `x.rs`. Identity combines the relative file path with the in-file item path,
   so this costs nothing downstream.

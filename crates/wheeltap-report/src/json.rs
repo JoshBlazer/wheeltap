@@ -90,42 +90,11 @@ pub fn render(report: &Report) -> Result<String, serde_json::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wheeltap_core::LineCol;
-    use wheeltap_core::finding::{Confidence, FindingId};
-    use wheeltap_core::source::{FileId, Location};
-
-    fn finding(rule: &'static str, severity: Severity) -> Finding {
-        Finding {
-            id: FindingId::new(rule, "lib.rs", "m::S.f", "code"),
-            rule,
-            severity,
-            confidence: Confidence::High,
-            message: "something is wrong".into(),
-            location: Location {
-                file: FileId(0),
-                start: LineCol { line: 3, column: 5 },
-                end: LineCol { line: 3, column: 9 },
-            },
-            file: "lib.rs".into(),
-            line: 3,
-            column: 5,
-            item_path: "m::S.f".into(),
-            snippet: "code".into(),
-            remediation: "do it differently".into(),
-            references: vec!["https://example.invalid".into()],
-        }
-    }
+    use crate::tests_support::report_with;
+    use wheeltap_core::finding::FindingId;
 
     fn report() -> Report {
-        Report {
-            findings: vec![
-                finding("WT001", Severity::Critical),
-                finding("WT003", Severity::High),
-            ],
-            diagnostics: Vec::new(),
-            files_scanned: 4,
-            lines_scanned: 200,
-        }
+        report_with(&[Severity::Critical, Severity::High])
     }
 
     #[test]
@@ -140,7 +109,7 @@ mod tests {
         assert_eq!(value["findings"][0]["rule"], "WT001");
         assert_eq!(value["findings"][0]["severity"], "critical");
         assert_eq!(value["findings"][0]["confidence"], "high");
-        assert_eq!(value["findings"][0]["line"], 3);
+        assert_eq!(value["findings"][0]["line"], 37);
     }
 
     #[test]
@@ -181,7 +150,13 @@ mod tests {
         assert_eq!(id.len(), 16);
         assert_eq!(
             id,
-            FindingId::new("WT001", "lib.rs", "m::S.f", "code").as_str()
+            FindingId::new(
+                "WT001",
+                "programs/vault/src/lib.rs",
+                "vault::Withdraw.authority",
+                "    pub authority: AccountInfo<'info>,"
+            )
+            .as_str()
         );
     }
 }

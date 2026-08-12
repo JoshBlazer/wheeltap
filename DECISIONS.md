@@ -291,3 +291,270 @@ stubs and report nothing, on the single largest program in the corpus.
 - Some non-instruction helpers that happen to take a `Context` are modelled as
   handlers. This is the right trade: a false handler costs a detector one
   harmless pass, while a missed handler costs coverage silently.
+
+---
+
+## ADR-007 — Anchor only for v1.0; CosmWasm is not a stretch target
+
+**Date:** 2026-08-12
+**Status:** Accepted
+**Answers:** build spec §10, question 1
+
+### Context
+
+The build spec offered CosmWasm as a stretch target. Three phases of
+implementation give a clearer view of what that would cost than the spec could
+have had when it was written.
+
+### Decision
+
+Anchor only. CosmWasm is not deferred, it is out of scope.
+
+### Rationale
+
+**Nothing transfers.** The value of this project is concentrated in
+`ProgramContext`, and every part of it is Anchor-shaped: `#[derive(Accounts)]`
+structs, the `#[account(...)]` constraint grammar, `Signer`/`Account`/
+`AccountInfo` and what each does or does not validate, PDAs and bumps. CosmWasm
+has no account model at all — it has entry points, `deps.storage`, and a message
+enum. Not one of the twelve detectors survives the translation, because eleven of
+them are questions about account validation and the twelfth is about compute
+budget.
+
+**The work is precision, not coverage.** Phase 3 spent far more effort tuning
+false positives than writing rules. WT005 went from 116 findings on drift to 15
+through four separate refinements, none of which were about the *rule* — they
+were about how real Anchor code is written. A second ecosystem means a second
+corpus, a second fixture set, and that whole exercise repeated with no
+transferable intuition.
+
+**Twenty known false positives argue against breadth.** The catalogue is
+complete; the precision is 43% on production code. Improving that is worth more
+than a shallow second target.
+
+### Consequences
+
+- The README says "Anchor" and does not imply a roadmap towards other ecosystems.
+- The crate description and crates.io keywords say Solana and Anchor.
+
+---
+
+## ADR-008 — Publish as `wheeltap` on crates.io
+
+**Date:** 2026-08-12
+**Status:** Accepted
+**Answers:** build spec §10, question 2
+
+### Context
+
+The name had to be checked rather than assumed.
+
+### Decision
+
+Publish as `wheeltap`. Checked 2026-08-12: `wheeltap`, `wheeltap-core`, and
+`wheeltap-cli` are all unclaimed.
+
+The root package is already named `wheeltap` (ADR-002), so `cargo install
+wheeltap` and `cargo install --path .` both resolve to the binary with no
+further work.
+
+### Consequences
+
+- Five crates are published. Only `wheeltap` is the user-facing name; the other
+  four are implementation and are documented as such.
+- Worth reserving before the project is public, since the name is the one thing
+  that cannot be changed later without breaking every install line ever written.
+
+---
+
+## ADR-009 — Drift is the Phase 6 validation target
+
+**Date:** 2026-08-12
+**Status:** Accepted
+**Answers:** build spec §10, question 3
+
+### Context
+
+Phase 6 requires comparing Wheeltap's findings against a *published* third-party
+audit of a real program, and documenting the misses. The candidate has to satisfy
+four things at once: a public audit report that can actually be obtained, a
+permissive licence, enough size for the comparison to mean something, and code we
+can model accurately.
+
+### Decision
+
+Drift (`velocity-exchange/protocol-v2`, vendored at `13e8e9b`), against its two
+published audits:
+
+- Neodyme, `drift-labs/audits/protocol-v2/neodyme.pdf` — verified reachable,
+  1.26 MB
+- Trail of Bits, `drift-labs/audits/protocol-v2/tob.pdf` — verified reachable,
+  1.69 MB
+
+**Two** independent audits by reputable firms is better than one: where they
+disagree about what mattered, that disagreement is itself worth reporting.
+
+### Rationale
+
+- **Already vendored and already understood.** Three phases of false-positive
+  triage were done against this program. Its idioms — zero-copy loaders, helper
+  functions in constraints, permissionless cranks — are known, which means the
+  audit comparison can be about the *analysis* rather than about learning the
+  codebase.
+- **Modelled completely**: 262 handlers, 155 Accounts structs, 855 fields, zero
+  parse failures.
+- **Apache-2.0**, so it can stay in the repository.
+- **73,000 lines** of production DeFi, audited because real money depends on it.
+
+### The objection, and why it does not carry
+
+The vendored commit has drift's entire `#[program]` dispatch module commented
+out — 245 of 246 handlers. That looked disqualifying at first.
+
+It is not, because the dispatchers are delegation stubs. The logic the auditors
+reviewed lives in the 287 `handle_*` functions under `src/instructions/`, and
+those are present and modelled (ADR-006 exists because of this). What is lost is
+the mapping from an instruction *name* to its handler, which matters for
+presentation and not for analysis.
+
+### Consequences
+
+- Phase 6 must read both PDFs and map findings by hand. Budget for that.
+- The comparison will be dominated by what Wheeltap **misses**, since the audits
+  found economic and protocol-level issues that no syntactic analyser reaches.
+  That is the honest and interesting result, and the build spec is explicit that
+  the misses must not be omitted.
+
+### Alternatives rejected
+
+- **Squads v4** — AGPL-3.0. Copyleft makes vendoring a licensing question the
+  project does not need.
+- **Marinade** — licence is `NOASSERTION`; unclear terms.
+- **A program audited but not vendored** — the comparison would not be
+  reproducible from a fresh clone.
+
+---
+
+## ADR-010 — The GitHub Action is in scope for v1.0
+
+**Date:** 2026-08-12
+**Status:** Accepted
+**Answers:** build spec §10, question 4
+
+### Context
+
+Whether Phase 5 ships with v1.0 or is deferred.
+
+### Decision
+
+In scope.
+
+### Rationale
+
+- **Adoption is the whole point.** A linter nobody runs finds nothing. Five
+  lines of workflow is the difference between a tool people read about and one
+  they use.
+- **It is nearly free now.** SARIF output lands in Phase 4 for other reasons,
+  and SARIF is exactly what GitHub code scanning consumes. The Action is
+  packaging on top of work already required.
+- **Speed is not a barrier.** 0.36 seconds for 73,000 lines (ADR-005) means the
+  Action costs less than the checkout that precedes it.
+- **It is the most persuasive artefact the project has.** A screenshot of a real
+  finding annotated inline on a pull request says more than the README.
+
+### Consequences
+
+- Phase 5 stays in the v1.0 plan.
+- The deterministic finding identity feeds SARIF `partialFingerprints`, so
+  GitHub can track a finding across pushes rather than reporting it as new each
+  time — which is the same property `--baseline` needs, from the same source.
+
+---
+
+## ADR-011 — Output schema versioning
+
+**Date:** 2026-08-12
+**Status:** Accepted
+
+### Context
+
+Three outputs now leave the tool, and other software reads all of them: JSON is
+parsed by scripts and read back as a baseline, SARIF is consumed by GitHub, and
+Markdown is read by people. Each needs a different promise.
+
+### Decision
+
+**JSON carries `"schema": "1.0"`.** The version is bumped on any breaking change
+to the shape, and the change is recorded here. Additive fields are not breaking.
+
+**SARIF is pinned to 2.1.0** and validated against the official schema —
+vendored at `schemas/sarif-2.1.0.json` — in `cargo test`, not only in CI. A
+consumer's rejection message names a schema path, not the mistake, so this
+catches it at the right moment.
+
+**SARIF fingerprints are versioned separately** as `wheeltapFindingId/v1`. If
+the identity scheme ever changes, it becomes a new fingerprint key rather than
+the same key with different values.
+
+**Markdown has no compatibility promise.** It is for humans, and constraining it
+would only prevent it from getting better.
+
+### Rationale
+
+The baseline mechanism reads JSON back, so the JSON shape is not merely output —
+it is an input to a future run. A consumer that pins the version can be told
+that something changed, rather than finding out when a baseline silently matches
+nothing and every finding reports as new.
+
+Versioning the fingerprint key separately matters for the same reason in
+GitHub's UI: an unversioned key whose values changed would close every alert and
+open an identical set, which is the exact noise `partialFingerprints` exists to
+prevent.
+
+### Consequences
+
+- The baseline reader is deliberately minimal — it reads identities and ignores
+  everything else — so a baseline written by an older or newer version still
+  loads. Tested.
+- A breaking JSON change requires a version bump, an entry here, and a note in
+  the README.
+
+---
+
+## ADR-012 — Suppression is honoured without a justification, and warned about
+
+**Date:** 2026-08-12
+**Status:** Accepted
+
+### Context
+
+The build spec suggests requiring a justification after `--` on inline
+suppressions, "enforced with a warning when absent". The stronger option is to
+refuse an unjustified suppression outright.
+
+### Decision
+
+Honour it, and emit a warning naming the file and line.
+
+### Rationale
+
+The purpose of a justification is to tell the *next* reader why this finding was
+dismissed, which is genuinely valuable — an unexplained suppression is a finding
+that was hidden rather than answered.
+
+But refusing to honour it does not produce a justification. It produces a
+developer who deletes the finding some other way: weakening the constraint,
+removing the rule from `wheeltap.toml`, or dropping the scan step. Every one of
+those is worse than a suppression with a missing sentence, because every one of
+them is invisible.
+
+A warning is read by the same people who would have written the reason, at the
+same moment, and costs nothing when ignored.
+
+### Consequences
+
+- `wheeltap.toml` rule and path suppressions are not warned about: they are
+  deliberate, reviewed configuration, and the file itself is the place for the
+  comment.
+- The warning appears as a diagnostic, so it is in JSON and SARIF output too,
+  not only on the terminal.

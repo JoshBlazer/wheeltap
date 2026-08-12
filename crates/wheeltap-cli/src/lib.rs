@@ -55,6 +55,18 @@ enum Command {
         /// Exit 1 when a finding at or above this severity is reported.
         #[arg(long, value_name = "SEVERITY", default_value = "low")]
         fail_on: Severity,
+
+        /// Report only findings absent from this previous JSON report.
+        #[arg(long, value_name = "FILE")]
+        baseline: Option<PathBuf>,
+
+        /// Configuration file. Defaults to `wheeltap.toml` beside the scanned path.
+        #[arg(long, value_name = "FILE")]
+        config: Option<PathBuf>,
+
+        /// Ignore `wheeltap.toml` and inline `wheeltap:allow` comments.
+        #[arg(long)]
+        no_suppress: bool,
     },
     /// Print the parsed program model for a path, for debugging the analyser.
     DebugContext {
@@ -90,11 +102,17 @@ pub fn run() -> ExitCode {
             format,
             severity_threshold,
             fail_on,
+            baseline,
+            config,
+            no_suppress,
         } => scan::run(&scan::Options {
             path: &path,
             format,
             severity_threshold,
             fail_on,
+            baseline,
+            config,
+            no_suppress,
         }),
         Command::DebugContext { path, json } => debug_context::run(&path, json),
     }

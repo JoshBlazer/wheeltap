@@ -8,10 +8,10 @@ findings as JSON, Markdown, or SARIF.
 > train striking each wheel with a long hammer, listening for the dull note that
 > betrayed a crack invisible from the outside.
 
-> ⚠️ **Under construction — Phase 4 of 6.** All twelve detectors are
-> implemented and `wheeltap scan` reports findings as JSON. Markdown and SARIF
-> output, suppression, and baselines arrive in Phase 4. `PROGRESS.md` is the
-> live status. This notice comes out at v1.0.0.
+> ⚠️ **Under construction — Phase 5 of 6.** All twelve detectors, three output
+> formats, suppression, and baselines are implemented. The GitHub Action and
+> crates.io release come next. `PROGRESS.md` is the live status. This notice
+> comes out at v1.0.0.
 
 ## The problem
 
@@ -89,6 +89,63 @@ $ ./target/release/wheeltap scan fixtures/vulnerable
 Exit codes are `0` clean, `1` findings at or above `--fail-on`, `2` internal
 error. `wheeltap debug-context <path>` prints the parsed program model, which is
 how you find out whether a missing finding is the rule's fault or the parser's.
+
+```console
+$ wheeltap scan ./programs --format markdown          # for a CI log
+$ wheeltap scan ./programs --format sarif > out.sarif # for GitHub code scanning
+$ wheeltap scan ./programs --severity-threshold high --fail-on critical
+```
+
+## Suppression
+
+Two ways, because they answer different questions.
+
+**Inline**, where the reason lives next to the thing it explains and survives
+refactoring:
+
+```rust
+/// CHECK: authority is verified by the calling program
+// wheeltap:allow(WT001) -- signature enforced across the CPI boundary
+pub authority: AccountInfo<'info>,
+```
+
+The comment may sit on the finding's line or anywhere in the run of attributes
+and comments directly above it. A suppression without a `-- reason` is still
+honoured, and warned about: refusing it would just push people to delete the
+scan instead (ADR-012).
+
+**Configured**, in `wheeltap.toml` beside the scanned path, for adopting the
+tool on a large codebase:
+
+```toml
+[suppress]
+rules = ["WT012"]              # switch a rule off entirely
+paths = ["programs/legacy/**"] # exempt a directory
+
+[severity]
+WT005 = "medium"               # downgrade for this project
+```
+
+Unknown keys are an error. A typo that silently switches nothing off is worse
+than a failure.
+
+Run with `--no-suppress` to see everything regardless.
+
+## Baselines
+
+Adopting a linter on an existing codebase has a chicken-and-egg problem: the
+first run reports hundreds of findings, nobody has time to fix them, so the
+build cannot fail on findings — and a check that never fails is a check nobody
+reads.
+
+```console
+$ wheeltap scan ./programs --format json > baseline.json   # freeze today
+$ wheeltap scan ./programs --baseline baseline.json        # fail only on new
+```
+
+This works only because finding identity is content-addressed. With positional
+identity, adding an import at the top of a file would make every finding below
+it "new", and the baseline would be noise within a day.
 
 ## Detectors
 

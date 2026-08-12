@@ -193,6 +193,11 @@ pub struct Finding {
     pub snippet: String,
     pub remediation: String,
     pub references: Vec<String>,
+    /// Lines on which an inline `wheeltap:allow` would cover this finding: its
+    /// own line, plus the run of attributes and comments directly above it.
+    /// Presentation-free and not part of identity, so it is not serialised.
+    #[serde(skip)]
+    pub suppression_lines: Vec<usize>,
 }
 
 impl Finding {

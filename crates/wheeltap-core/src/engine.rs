@@ -95,6 +95,41 @@ pub fn run(ctx: &ProgramContext, detectors: &[Box<dyn Detector>]) -> Report {
     }
 }
 
+/// Lines on which an inline `wheeltap:allow` covers a finding.
+///
+/// The finding's own line, plus the unbroken run of attributes and comments
+/// directly above it. That run is where a reader would naturally put the
+/// comment, because it is where Anchor's own `/// CHECK:` goes:
+///
+/// ```ignore
+/// /// CHECK: validated by the CPI callee
+/// // wheeltap:allow(WT001) -- authority signs in the callee
+/// #[account(mut)]
+/// pub authority: AccountInfo<'info>,
+/// ```
+///
+/// Walking up stops at the first line that is neither, so a suppression cannot
+/// leak onto an unrelated field further up the struct.
+fn suppression_lines(source: &crate::source::SourceFile, line: usize) -> Vec<usize> {
+    let mut lines = vec![line];
+    let mut above = line;
+
+    while above > 1 {
+        above -= 1;
+        let Some(text) = source.line(above) else {
+            break;
+        };
+        let trimmed = text.trim_start();
+        if trimmed.starts_with("//") || trimmed.starts_with("#[") || trimmed.starts_with("#!") {
+            lines.push(above);
+        } else {
+            break;
+        }
+    }
+
+    lines
+}
+
 /// How many source lines a finding's snippet may span.
 ///
 /// Enough to show an account field with its constraints, not so much that a
@@ -115,7 +150,8 @@ impl ProgramContext {
         message: impl Into<String>,
     ) -> Finding {
         let file = self.sources.display_path(at.file);
-        let snippet = self.sources.get(at.file).snippet(at, SNIPPET_LINES);
+        let source = self.sources.get(at.file);
+        let snippet = source.snippet(at, SNIPPET_LINES);
 
         Finding {
             id: FindingId::new(rule.id, &file, item_path, &snippet),
@@ -131,6 +167,7 @@ impl ProgramContext {
             snippet,
             remediation: rule.remediation.to_string(),
             references: rule.references.iter().map(|r| (*r).to_string()).collect(),
+            suppression_lines: suppression_lines(source, at.start.line),
         }
     }
 }

@@ -1,0 +1,260 @@
+---
+source: tests/snapshot.rs
+expression: "wheeltap_report::markdown::render(&report)"
+---
+# Wheeltap
+
+**17 findings** in 12 files, 670 lines.
+
+| Severity | Count |
+|---|---|
+| critical | 3 |
+| high | 11 |
+| medium | 2 |
+| low | 1 |
+
+## Critical
+
+### `WT001` WT001_missing_signer/vault.rs:37
+
+`Withdraw.authority` is verified by a `has_one` constraint but is never required to sign, and no account in `Withdraw` signs at all. The constraint proves which account this is; it does not prove the holder authorised anything. Public keys are public, so any caller can pass this one.
+
+```rust
+    pub authority: AccountInfo<'info>,
+```
+
+**Fix.** Type the account as `Signer<'info>`. If it must stay an `AccountInfo`, require the signature explicitly with `#[account(signer)]` or `constraint = authority.is_signer`.
+
+<sub>critical · confidence high · `Withdraw.authority` · id `2d70e5e62f325c65`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/signer-auth) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
+
+### `WT002` WT002_missing_owner/oracle.rs:44
+
+`Borrow.oracle` is an unvalidated account whose data is deserialised in `borrow` without establishing the owning program. An attacker can pass an account owned by their own program with any contents they like.
+
+```rust
+    pub oracle: AccountInfo<'info>,
+```
+
+**Fix.** Use `Account<'info, T>`, which verifies the owner and discriminator before the handler runs. If the account must stay an `AccountInfo`, pin it with `#[account(owner = expected::ID)]` or assert `*account.owner` before reading its data.
+
+<sub>critical · confidence medium · `Borrow.oracle` · id `ffe1e9d53c4e3354`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/owner-checks) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
+
+### `WT007` WT007_arbitrary_cpi/router.rs:55
+
+`Forward.target_program` is invoked as a program by `forward`, but its address is never established. The caller chooses which program receives the invocation, and any signing seeds this program supplies go with it.
+
+```rust
+    pub target_program: AccountInfo<'info>,
+```
+
+**Fix.** Declare the callee as `Program<'info, T>`, or `Interface<'info, T>` where several implementations are accepted. Where no Anchor type exists, pin the address with `#[account(address = expected::ID)]`.
+
+<sub>critical · confidence high · `Forward.target_program` · id `2f064f6836edaf41`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/arbitrary-cpi) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
+
+## High
+
+### `WT003` WT003_unchecked_arithmetic/staking.rs:23
+
+`stake.amount + amount` in `deposit` uses `+` on a value that holds funds. In a release build this wraps silently rather than failing.
+
+```rust
+        stake.amount = stake.amount + amount;
+```
+
+**Fix.** Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.
+
+<sub>high · confidence medium · `staking::deposit` · id `d2c5e1a8cb484e2e`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/overflow-underflow) · [reference](https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks)</sub>
+
+### `WT003` WT003_unchecked_arithmetic/staking.rs:24
+
+`stake.total_deposited += amount` in `deposit` uses `+=` on a value that holds funds. In a release build this wraps silently rather than failing.
+
+```rust
+        stake.total_deposited += amount;
+```
+
+**Fix.** Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.
+
+<sub>high · confidence medium · `staking::deposit` · id `edb68547df2c0203`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/overflow-underflow) · [reference](https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks)</sub>
+
+### `WT003` WT003_unchecked_arithmetic/staking.rs:27
+
+`pool.total_staked + amount` in `deposit` uses `+` on a value that holds funds. In a release build this wraps silently rather than failing.
+
+```rust
+        pool.total_staked = pool.total_staked + amount;
+```
+
+**Fix.** Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.
+
+<sub>high · confidence medium · `staking::deposit` · id `8855ca683806d7ee`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/overflow-underflow) · [reference](https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks)</sub>
+
+### `WT003` WT003_unchecked_arithmetic/staking.rs:36
+
+`stake.amount * ctx.accounts.pool.reward_rate * elapsed as...` in `claim` uses `*` on a value that holds funds. In a release build this wraps silently rather than failing.
+
+```rust
+        let rewards = stake.amount * ctx.accounts.pool.reward_rate * elapsed as u64;
+```
+
+**Fix.** Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.
+
+<sub>high · confidence medium · `staking::claim` · id `4d4451207675e9ee`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/overflow-underflow) · [reference](https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks)</sub>
+
+### `WT003` WT003_unchecked_arithmetic/staking.rs:38
+
+`stake.pending_rewards += rewards` in `claim` uses `+=` on a value that holds funds. In a release build this wraps silently rather than failing.
+
+```rust
+        stake.pending_rewards += rewards;
+```
+
+**Fix.** Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.
+
+<sub>high · confidence medium · `staking::claim` · id `a7d974c1d5c33e83`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/overflow-underflow) · [reference](https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks)</sub>
+
+### `WT003` WT003_unchecked_arithmetic/staking.rs:41
+
+`ctx.accounts.pool.remaining_rewards -= rewards` in `claim` uses `-=` on a value that holds funds. In a release build this wraps silently rather than failing.
+
+```rust
+        ctx.accounts.pool.remaining_rewards -= rewards;
+```
+
+**Fix.** Use `checked_add`/`checked_sub`/`checked_mul` and return an error on overflow, or `saturating_*` where clamping is the intended behaviour. Alternatively set `overflow-checks = true` under `[profile.release]`, which turns wrapping into a panic and silences this rule.
+
+<sub>high · confidence medium · `staking::claim` · id `22ba41310ec76064`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/overflow-underflow) · [reference](https://doc.rust-lang.org/cargo/reference/profiles.html#overflow-checks)</sub>
+
+### `WT004` WT004_reinitialisation/registry.rs:37
+
+`CreateProfile.profile` uses `init_if_needed` on program state, and no handler checks whether the account already holds data. A caller can pass an existing account and have the handler overwrite state that belongs to someone else.
+
+```rust
+    pub profile: Account<'info, Profile>,
+```
+
+**Fix.** Ask whether the account is already initialised before writing the fields that establish ownership — compare the stored authority against `Pubkey::default()`, or require it to match the caller. Where creation and update are genuinely different operations, give them separate instructions and use plain `init`.
+
+<sub>high · confidence medium · `CreateProfile.profile` · id `410ab9cbe9e9fbf2`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/reinitialization-attacks) · [reference](https://www.anchor-lang.com/docs/account-constraints)</sub>
+
+### `WT005` WT005_missing_has_one/treasury.rs:33
+
+`Treasury` stores `authority: Pubkey`, and `Withdraw` takes both `treasury` and `authority`, but never checks that they match. The stored key records a relationship the instruction does not enforce, so any `treasury` can be used with any `authority`.
+
+```rust
+    pub treasury: Account<'info, Treasury>,
+```
+
+**Fix.** Add `has_one = <field>` to the account that stores the key, or assert it explicitly with `constraint = account.field == other.key()`. Deriving the account's address from the key with `seeds` enforces the same relationship and is stronger still.
+
+<sub>high · confidence medium · `Withdraw.treasury` · id `0dc13ff4575e2169`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/account-data-matching) · [reference](https://www.anchor-lang.com/docs/account-constraints)</sub>
+
+### `WT006` WT006_non_canonical_bump/market.rs:38
+
+`OpenMarket.market` derives its address with `bump = market_bump`, which comes from the instruction argument `market_bump`. The caller chooses the bump, so they can derive several valid addresses for the same seeds. Use a bare `bump` and let Anchor supply the canonical one.
+
+```rust
+        bump = market_bump,
+```
+
+**Fix.** Write `bump` on its own and let Anchor derive the canonical bump, storing `ctx.bumps.<account>` if later instructions need it. Where a bump is re-derived, read it from the account (`bump = account.bump`) rather than from the caller.
+
+<sub>high · confidence high · `OpenMarket.market` · id `f8c3eb4d2afe9cab`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/bump-seed-canonicalization) · [reference](https://www.anchor-lang.com/docs/pdas)</sub>
+
+### `WT009` WT009_sysvar_spoofing/clocked.rs:43
+
+`Claim.clock` is named for a sysvar but is an unchecked account with no address constraint. Sysvars live at fixed addresses and are otherwise ordinary accounts, so a caller can substitute one with contents of their choosing.
+
+```rust
+    pub clock: AccountInfo<'info>,
+```
+
+**Fix.** Use `Sysvar<'info, Clock>` and its siblings, which assert the address. For sysvars Anchor has no type for, pin it with `#[account(address = sysvar::instructions::ID)]`.
+
+<sub>high · confidence high · `Claim.clock` · id `54d2cd9bdf500a57`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/sysvar-spoofing) · [reference](https://docs.rs/anchor-lang/latest/anchor_lang/accounts/sysvar/struct.Sysvar.html)</sub>
+
+### `WT010` WT010_unchecked_deserialisation/config_store.rs:21
+
+`read_config` calls `try_deserialize_unchecked`, which does not verify the account discriminator. Any account owned by this program can then be read as this type, regardless of what it actually is.
+
+```rust
+    pub fn read_config(ctx: Context<ReadConfig>) -> Result<()> {
+```
+
+**Fix.** Use `try_deserialize`, which verifies the discriminator, or the typed `Account<'info, T>` which does it before the handler runs. The `_unchecked` variants are for accounts you have just created and know the layout of.
+
+<sub>high · confidence high · `config_store::read_config` · id `1e42fc9635a63add`</sub>
+
+<sub>[reference](https://www.anchor-lang.com/docs/account-types) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
+
+## Medium
+
+### `WT008` WT008_unsafe_close/closer.rs:23
+
+`close_position` sets an account's lamports to zero without clearing its data. The runtime only reclaims the account at the end of the transaction, so a caller can send lamports back within the same transaction and keep the account, its data intact.
+
+```rust
+    pub fn close_position(ctx: Context<ClosePosition>) -> Result<()> {
+```
+
+**Fix.** Prefer Anchor's `close = destination` constraint, which drains the lamports, zeroes the data, and assigns the account to the system program. Closing by hand requires all three — zeroing the balance alone leaves the account revivable within the same transaction.
+
+<sub>medium · confidence medium · `closer::close_position` · id `8af310d24a646694`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/closing-accounts) · [reference](https://www.anchor-lang.com/docs/account-constraints)</sub>
+
+### `WT011` WT011_duplicate_mutable/transfer.rs:34
+
+`Transfer` takes 2 mutable `Balance` accounts (from, to) with nothing asserting they differ. A caller can pass the same address for all of them; Anchor deserialises it once per field, and only the last write survives.
+
+```rust
+    pub from: Account<'info, Balance>,
+```
+
+**Fix.** Assert that the accounts differ: `constraint = first.key() != second.key()`. Anchor cannot infer it, because passing the same account twice is legitimate in other instructions.
+
+<sub>medium · confidence medium · `Transfer.from` · id `ed7f4c41ecffac78`</sub>
+
+<sub>[reference](https://solana.com/developers/courses/program-security/duplicate-mutable-accounts) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
+
+## Low
+
+### `WT012` WT012_alloc_in_loop/rebalance.rs:23
+
+`pool.weights.clone()` in `rebalance` allocates on every iteration. Hoist it out of the loop, or borrow instead — compute units are a hard per-transaction budget.
+
+```rust
+            let snapshot = pool.weights.clone();
+```
+
+**Fix.** Hoist the allocation out of the loop, or borrow instead of cloning. Where the collection is only read, iterate over a reference.
+
+<sub>low · confidence medium · `rebalance::rebalance` · id `61d128c53432a529`</sub>
+
+<sub>[reference](https://solana.com/docs/core/fees#compute-budget)</sub>
