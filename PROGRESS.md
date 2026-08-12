@@ -1,17 +1,17 @@
 # Wheeltap — Progress
 
-**Current phase:** 0 — Foundations (exit criteria met locally; unverified on CI)
-**Last updated:** 2026-08-11
-**Build status:** green locally — `fmt --check`, `clippy -D warnings`, and 7
-tests all pass on stable 1.97.1, and the workspace builds on the 1.88 MSRV. CI
-has never run: nothing is pushed yet (Q8).
+**Current phase:** 0 complete — next is 1, Loader, parser, and program context
+**Last updated:** 2026-08-12
+**Build status:** green — `fmt --check`, `clippy -D warnings`, and 7 tests pass
+on stable 1.97.1, and the workspace builds on the 1.88 MSRV. Both CI jobs green
+on a fresh clone at `492e419`.
 
 ## Phase status
 
 | Phase | Name | Status | Exit criteria met | Notes |
 |-------|------|--------|-------------------|-------|
-| 0 | Foundations | done, pending CI | locally | Workspace, CI, docs, and corpus in place; green on stable and on MSRV. The exit criterion is "CI green on a fresh clone", which needs a push (Q8) |
-| 1 | Loader, parser, program context | not started | — | |
+| 0 | Foundations | **done** | yes | CI green on a fresh clone, both jobs, at `492e419` |
+| 1 | Loader, parser, program context | next | — | |
 | 2 | Detector engine + WT001-WT003 | not started | — | |
 | 3 | Full detector suite | not started | — | |
 | 4 | Reporting, suppression, baselines | not started | — | |
@@ -61,8 +61,7 @@ No detectors implemented. A rule is `implemented` only when its true-positive
 
 - `wheeltap scan` and `wheeltap debug-context` exit 2 with "not implemented".
 - No loader, no parser, no program context model, no detectors, no reporters.
-- CI has never run — nothing is pushed. Phase 0's exit criterion is "CI green on
-  a fresh clone", so it is met only in substance until then.
+- Nothing analyses anything yet. The tool is a skeleton with green scaffolding.
 
 ## Decisions made
 
@@ -91,14 +90,12 @@ installed; the workspace builds and tests.
 carry no AI co-authorship trailer, by explicit instruction.
 
 ~~**Q3 — Repository URL.**~~ **Resolved 2026-08-11.**
-`https://github.com/JoshBlazer/wheeltap` — public, and configured as `origin`.
-Nothing pushed yet: this machine has no GitHub credentials, so the first push
-needs `gh auth login` (see Q8).
+`https://github.com/JoshBlazer/wheeltap` — public, configured as `origin`, and
+pushed.
 
-**Q8 — GitHub authentication.** `gh` 2.97.0 is installed at `~/.local/bin/gh`,
-but no credentials exist on this machine — no token, no SSH key, no credential
-helper. `gh auth login` is interactive and must be run by hand before the first
-push.
+~~**Q8 — GitHub authentication.**~~ **Resolved 2026-08-12.** `gh` 2.97.0 at
+`~/.local/bin/gh`, authenticated as `JoshBlazer` over HTTPS with `repo` and
+`workflow` scopes.
 
 The four questions the build spec (§10) requires answering before Phase 3:
 
@@ -121,9 +118,7 @@ value and the most persuasive artefact for a portfolio.
 
 ## Next actions
 
-1. Authenticate with GitHub (Q8) and push; confirm CI is green on a fresh clone.
-   **That closes Phase 0.**
-2. Answer Q4 to Q7 and record them in `DECISIONS.md`.
+1. Answer Q4 to Q7 and record them in `DECISIONS.md`. None block Phase 1.
 4. Begin Phase 1: file discovery honouring `.gitignore`, `syn::parse_file` with
    parse failures degraded to warnings, and the `ProgramContext` model —
    `#[program]` modules, `#[derive(Accounts)]` structs, Anchor account types,

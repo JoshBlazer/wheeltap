@@ -8,9 +8,10 @@ findings as JSON, Markdown, or SARIF.
 > train striking each wheel with a long hammer, listening for the dull note that
 > betrayed a crack invisible from the outside.
 
-> ⚠️ **Under construction — Phase 0 of 6.** The workspace, CI, and scan corpus
-> are in place; no detectors are implemented yet. `PROGRESS.md` is the live
-> status. This notice comes out at v1.0.0.
+> ⚠️ **Under construction — Phase 1 of 6.** The workspace, CI, and scan corpus
+> are in place and green; the parser and detectors are not written yet, so the
+> tool finds nothing. `PROGRESS.md` is the live status. This notice comes out at
+> v1.0.0.
 
 ## The problem
 
