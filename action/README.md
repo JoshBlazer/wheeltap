@@ -56,10 +56,9 @@ the CLI exactly, so a run reproduces locally without translating flags.
 | `exit-code` | `WHEELTAP_EXIT_CODE` | `0` clean, `1` findings at or above `fail-on`, `2` error |
 | `sarif-file` | `WHEELTAP_SARIF_FILE` | Path to the SARIF report, uploaded or not |
 
-**Read the environment variables, not the outputs, after a failing run.** GitHub
-discards a composite action's outputs when the action fails — which is precisely
-the run you want to inspect. The same values are published both ways for that
-reason.
+**After a failing run, prefer the environment variables.** The run you want to
+inspect is the one that failed, and step outputs are the more fragile channel
+across a failure. The same values are published both ways for that reason.
 
 ```yaml
 - uses: JoshBlazer/wheeltap@v1

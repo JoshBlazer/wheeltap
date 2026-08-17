@@ -184,10 +184,18 @@ runs:
         [[ -n "$CONFIG" ]] && args+=(--config "$CONFIG")
 
         "$WHEELTAP" --version
+
+        # `shell: bash` runs with `-e`, and exit 1 is the scanner's *success*
+        # case with findings. Left alone, the step dies on the line that
+        # matters and never records the exit code or the count — which is
+        # exactly how this was found. `set -uo pipefail` does not turn `-e`
+        # back off; it has to be said.
+        set +e
         # One scan renders every format. Scanning once per consumer would be
         # three times the work and three chances for the reports to disagree.
         "$WHEELTAP" "${args[@]}"
         code=$?
+        set -e
 
         # Exit 2 is Wheeltap failing, not the code failing. Surface it as the
         # action's own error rather than letting it read as a security finding.

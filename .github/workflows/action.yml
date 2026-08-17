@@ -50,6 +50,11 @@ jobs:
           set -euo pipefail
           outcome='${{ steps.scan.outcome }}'
 
+          # Printed, not asserted: whether a composite action's outputs survive
+          # its own failure is worth being able to read rather than assume.
+          echo "outputs: exit-code='${{ steps.scan.outputs.exit-code }}' findings='${{ steps.scan.outputs.findings }}'"
+          echo "env:     exit-code='${WHEELTAP_EXIT_CODE:-}' findings='${WHEELTAP_FINDINGS:-}'"
+
           [[ "$outcome" == "failure" ]] || {
             echo "::error::the action passed on vulnerable fixtures (outcome=$outcome)"; exit 1; }
           [[ "$WHEELTAP_EXIT_CODE" == "1" ]] || {

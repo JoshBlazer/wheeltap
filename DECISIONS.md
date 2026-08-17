@@ -716,14 +716,19 @@ would.
   README, and the reason SARIF stays the primary channel.
 - The self-test workflow uploads for real on pushes to `main`, which is what
   closes Phase 4's exit criterion — schema validity is not evidence of ingestion.
-- A second composite-action limitation surfaced when the self-test first ran:
-  GitHub **discards a composite action's outputs when the action fails**, which
-  is exactly the run whose finding count someone wants to read. The Action
-  therefore publishes `exit-code` and `findings` twice — as step outputs, and as
-  `WHEELTAP_EXIT_CODE` and `WHEELTAP_FINDINGS` in the environment, which
-  survive. The self-test asserts through both: the failing job reads the
-  environment, the passing job reads the outputs, so neither contract can rot
-  unnoticed.
+- `shell: bash` runs with `-e`, and **exit 1 is the scanner's success case with
+  findings**. The step that captures the exit code therefore has to say `set +e`
+  around the invocation — `set -uo pipefail` does not turn `-e` back off. Left
+  alone the step dies on the one line that matters, recording neither the code
+  nor the count, and the Action reports nothing about the run it just failed.
+  This passed a local shell simulation, where `-e` is not the default, and was
+  caught only by the self-test workflow running for real.
+- `exit-code` and `findings` are published twice, as step outputs and as
+  `WHEELTAP_EXIT_CODE` and `WHEELTAP_FINDINGS` in the environment. The
+  interesting run is the failing one, and step outputs are the more fragile
+  channel across a failure. The self-test asserts through both — the failing
+  job on the environment, the passing job on the outputs — so neither contract
+  can rot unnoticed.
 
 ---
 
