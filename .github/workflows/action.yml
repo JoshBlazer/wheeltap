@@ -1,0 +1,165 @@
+name: Action
+
+# The Action is the product for anyone who never runs the CLI, so it is tested
+# the way they will use it: as `uses:`, against real fixtures, asserting the
+# build outcome rather than the log text.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Vulnerable fixtures must turn the build red. A security action that passes
+  # on known-vulnerable code is worse than no action at all, so this is the
+  # single most important assertion in the repository.
+  vulnerable:
+    name: fails on vulnerable fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Scan vulnerable fixtures
+        id: scan
+        uses: ./action
+        # Only a job-level step may do this — `continue-on-error` is not among
+        # the keys a composite action's own steps accept — which is why the
+        # assertion lives out here rather than inside the action.
+        continue-on-error: true
+        with:
+          path: fixtures/vulnerable
+          fail-on: high
+          upload-sarif: false
+          job-summary: false
+
+      - name: The build should have failed
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.scan.outcome }}'
+          code='${{ steps.scan.outputs.exit-code }}'
+          findings='${{ steps.scan.outputs.findings }}'
+
+          [[ "$outcome" == "failure" ]] || {
+            echo "::error::the action passed on vulnerable fixtures (outcome=$outcome)"; exit 1; }
+          [[ "$code" == "1" ]] || {
+            echo "::error::expected exit 1 (findings), got $code"; exit 1; }
+          [[ "${findings:-0}" -gt 0 ]] || {
+            echo "::error::the action failed the build but reported no findings"; exit 1; }
+          echo "$findings finding(s), exit $code — as intended"
+
+      - name: SARIF was written and is not empty
+        run: |
+          set -euo pipefail
+          test -s wheeltap.sarif
+          count=$(jq '[.runs[].results[]] | length' wheeltap.sarif)
+          [[ "$count" -gt 0 ]] || { echo "::error::SARIF has no results"; exit 1; }
+          # Identity is what lets GitHub match an alert across pushes. Without
+          # it the upload works and the alerts churn, which fails silently.
+          jq -e '[.runs[].results[].partialFingerprints | length] | all(. > 0)' \
+            wheeltap.sarif > /dev/null \
+            || { echo "::error::a result has no partialFingerprints"; exit 1; }
+          echo "$count result(s) with fingerprints"
+
+  # Safe fixtures are idiomatic Anchor a naive rule would flag. A false positive
+  # here is what makes people switch the tool off.
+  safe:
+    name: passes on safe fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Scan safe fixtures
+        id: scan
+        uses: ./action
+        with:
+          path: fixtures/safe
+          fail-on: info
+          upload-sarif: false
+          job-summary: false
+
+      - name: Nothing should have been found
+        run: |
+          set -euo pipefail
+          [[ '${{ steps.scan.outputs.exit-code }}' == "0" ]] || exit 1
+          [[ '${{ steps.scan.outputs.findings }}' == "0" ]] || {
+            echo "::error::${{ steps.scan.outputs.findings }} false positive(s) on safe fixtures"
+            exit 1; }
+
+  # A baseline of today's findings must make the same scan report nothing. This
+  # is the adoption path for an existing codebase, and it only works because
+  # finding identity is content-addressed rather than positional.
+  baseline:
+    name: a baseline suppresses pre-existing findings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Freeze today's findings
+        uses: ./action
+        continue-on-error: true
+        with:
+          path: fixtures/vulnerable
+          upload-sarif: false
+          job-summary: false
+          sarif-file: frozen.sarif
+
+      - name: Build a baseline from that scan
+        run: |
+          set -euo pipefail
+          cargo run --quiet --release -- scan fixtures/vulnerable --format json > baseline.json
+          jq -e '.findings | length > 0' baseline.json > /dev/null
+
+      - name: The same scan against its own baseline is clean
+        id: scan
+        uses: ./action
+        with:
+          path: fixtures/vulnerable
+          baseline: baseline.json
+          upload-sarif: false
+          job-summary: false
+
+      - name: Nothing should be new
+        run: |
+          set -euo pipefail
+          [[ '${{ steps.scan.outputs.exit-code }}' == "0" ]] || {
+            echo "::error::a baseline of the scan did not suppress its own findings"; exit 1; }
+
+  # The end-to-end proof that Phase 4's SARIF is not merely schema-valid: it is
+  # ingested by GitHub code scanning and becomes alerts. Runs only on main —
+  # a pull request from a fork has a read-only token and would fail here.
+  #
+  # The alerts this produces are on `fixtures/vulnerable/`, which is code that
+  # is deliberately broken. That is the point: the Security tab shows what the
+  # tool actually finds.
+  upload:
+    name: SARIF reaches code scanning
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Scan and upload
+        uses: ./action
+        continue-on-error: true
+        with:
+          path: fixtures/vulnerable
+          upload-sarif: true
+          job-summary: true

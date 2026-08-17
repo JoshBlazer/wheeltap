@@ -71,3 +71,19 @@ fn vulnerable_corpus_sarif_report() {
 
     insta::assert_json_snapshot!("vulnerable_sarif", json);
 }
+
+/// GitHub Actions annotations for the vulnerable corpus.
+///
+/// This is the text a pull-request reviewer sees as inline bubbles. It is also
+/// the format most easily broken by accident — a stray comma in a message
+/// silently changes what GitHub parses — so the exact bytes are pinned.
+#[test]
+fn vulnerable_corpus_github_annotations() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/vulnerable");
+    let report = wheeltap_core::engine::run(&ProgramContext::scan(&path), &wheeltap_rules::all());
+
+    insta::assert_snapshot!(
+        "vulnerable_github",
+        wheeltap_report::github::render(&report, Path::new("fixtures/vulnerable"))
+    );
+}

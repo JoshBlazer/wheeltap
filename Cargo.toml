@@ -10,6 +10,20 @@ readme = "README.md"
 keywords = ["solana", "anchor", "security", "static-analysis", "sast"]
 categories = ["development-tools", "command-line-utilities"]
 
+# The fixture corpus, the vendored SARIF schema, and the integration tests are
+# inputs to this repository's test suite, not to the binary. They are 3 MB of
+# third-party Anchor source, and nobody running `cargo install wheeltap` wants
+# to download them. Note this is `[package] exclude` — unrelated to the
+# `[workspace] exclude` below, which keeps the fixtures out of the build graph.
+exclude = [
+    "fixtures/",
+    "tests/",
+    "schemas/",
+    "action/",
+    ".github/",
+    "WHEELTAP_BUILD_SPEC.md",
+]
+
 # The root package is the installable binary, so that both
 #   cargo install --path .
 #   cargo install wheeltap

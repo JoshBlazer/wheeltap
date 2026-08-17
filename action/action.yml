@@ -1,0 +1,296 @@
+name: Wheeltap
+description: Static analysis for Rust-based Solana smart contracts (Anchor) — annotates pull requests and uploads SARIF.
+author: Joshua Willie
+
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  path:
+    description: Directory or file to scan, relative to the repository root.
+    required: false
+    default: "."
+  severity-threshold:
+    description: >-
+      Do not report findings below this severity.
+      One of critical, high, medium, low, info.
+    required: false
+    default: info
+  fail-on:
+    description: >-
+      Fail the build when a finding at or above this severity is reported.
+      One of critical, high, medium, low, info. Matches the CLI default.
+    required: false
+    default: low
+  baseline:
+    description: >-
+      Path to a previous JSON report. Only findings absent from it are
+      reported, which is how you adopt Wheeltap on a codebase that already
+      has findings without turning the build red on day one.
+    required: false
+    default: ""
+  format:
+    description: >-
+      Format written to the workflow log. `github` produces inline
+      annotations; json, markdown, and sarif are also accepted.
+    required: false
+    default: github
+  config:
+    description: Path to wheeltap.toml. Defaults to one beside the scanned path, if present.
+    required: false
+    default: ""
+  upload-sarif:
+    description: >-
+      Upload SARIF to GitHub code scanning. `auto` (the default) uploads only
+      where the upload can succeed: a public repository, on an event that is
+      not a pull request from a fork. `true` forces it, `false` disables it.
+      Requires `permissions: security-events: write` on the calling job.
+    required: false
+    default: auto
+  sarif-file:
+    description: Where to write the SARIF report.
+    required: false
+    default: wheeltap.sarif
+  job-summary:
+    description: Append a Markdown report to the workflow job summary.
+    required: false
+    default: "true"
+
+outputs:
+  sarif-file:
+    description: Path to the SARIF report, whether or not it was uploaded.
+    value: ${{ inputs.sarif-file }}
+  findings:
+    description: Number of findings reported, after suppression and thresholds.
+    value: ${{ steps.scan.outputs.findings }}
+  exit-code:
+    description: The scanner's exit code — 0 clean, 1 findings at or above fail-on, 2 error.
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    # The binary is versioned with the action: whatever ref you pinned is the
+    # version you get. Resolving it from the checked-out manifest means the two
+    # cannot drift, and there is no `version` input to get wrong.
+    - name: Resolve version and platform
+      id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        root="${{ github.action_path }}/.."
+
+        # awk, not `grep -oP | head`: macOS runners ship BSD grep, which has no
+        # -P, and a pipe into `head` under `pipefail` can fail on SIGPIPE.
+        # `version.workspace = true` has no quote, so the pattern skips it and
+        # lands on the real one under [workspace.package].
+        version=$(awk -F'"' '/^version[[:space:]]*=[[:space:]]*"/ {print $2; exit}' "$root/Cargo.toml")
+        if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+          echo "::error::could not read a version from Cargo.toml (got '$version')"
+          exit 1
+        fi
+
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64)    target=x86_64-unknown-linux-gnu  ; exe="" ;;
+          Linux/ARM64)  target=aarch64-unknown-linux-gnu ; exe="" ;;
+          macOS/X64)    target=x86_64-apple-darwin       ; exe="" ;;
+          macOS/ARM64)  target=aarch64-apple-darwin      ; exe="" ;;
+          Windows/X64)  target=x86_64-pc-windows-msvc    ; exe=".exe" ;;
+          *)
+            echo "::error::unsupported runner $RUNNER_OS/$RUNNER_ARCH"
+            exit 1 ;;
+        esac
+
+        {
+          echo "version=$version"
+          echo "target=$target"
+          echo "exe=$exe"
+          echo "root=$root"
+          echo "bin-dir=$HOME/.wheeltap/bin"
+        } >> "$GITHUB_OUTPUT"
+
+    # The action's ref is in the key as well as the version, so pinning to a
+    # moving ref like @main still picks up a rebuild. `hashFiles` cannot help
+    # here: it only resolves paths inside the workspace, and a remote action is
+    # checked out well outside it.
+    - name: Restore cached binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.resolve.outputs.bin-dir }}
+        key: wheeltap-${{ steps.resolve.outputs.target }}-${{ steps.resolve.outputs.version }}-${{ github.action_ref || github.sha }}
+
+    # Three ways to get a binary, cheapest first. The release asset is seconds;
+    # building from source is minutes but always works, including on a ref that
+    # was never released — which is every pull request against this repository.
+    - name: Install Wheeltap
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+        TARGET: ${{ steps.resolve.outputs.target }}
+        EXE: ${{ steps.resolve.outputs.exe }}
+        ROOT: ${{ steps.resolve.outputs.root }}
+        BIN_DIR: ${{ steps.resolve.outputs.bin-dir }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$BIN_DIR"
+
+        asset="wheeltap-${VERSION}-${TARGET}.tar.gz"
+        url="${{ github.server_url }}/${{ github.action_repository || github.repository }}/releases/download/v${VERSION}/${asset}"
+
+        echo "::group::Installing wheeltap ${VERSION}"
+        if curl --fail --silent --show-error --location --retry 3 \
+             --output "$RUNNER_TEMP/$asset" "$url"; then
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$BIN_DIR"
+          echo "installed from the release asset"
+        else
+          echo "no release asset at $url — building from source"
+          if ! command -v cargo >/dev/null; then
+            echo "::error::no release binary for $TARGET and no Rust toolchain to build one. Add dtolnay/rust-toolchain@stable before this step."
+            exit 1
+          fi
+          # --locked so the build matches the committed lockfile, which is also
+          # what the cache key was computed from.
+          cargo install --path "$ROOT" --locked --root "$HOME/.wheeltap" --force
+        fi
+        chmod +x "$BIN_DIR/wheeltap$EXE"
+        echo "::endgroup::"
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        WHEELTAP: ${{ steps.resolve.outputs.bin-dir }}/wheeltap${{ steps.resolve.outputs.exe }}
+        SCAN_PATH: ${{ inputs.path }}
+        SEVERITY_THRESHOLD: ${{ inputs.severity-threshold }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        BASELINE: ${{ inputs.baseline }}
+        FORMAT: ${{ inputs.format }}
+        CONFIG: ${{ inputs.config }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        set -uo pipefail
+
+        args=(scan "$SCAN_PATH"
+              --format "$FORMAT"
+              --severity-threshold "$SEVERITY_THRESHOLD"
+              --fail-on "$FAIL_ON"
+              --emit "sarif=$SARIF_FILE"
+              --emit "json=$RUNNER_TEMP/wheeltap.json"
+              --emit "markdown=$RUNNER_TEMP/wheeltap.md")
+        [[ -n "$BASELINE" ]] && args+=(--baseline "$BASELINE")
+        [[ -n "$CONFIG" ]] && args+=(--config "$CONFIG")
+
+        "$WHEELTAP" --version
+        # One scan renders every format. Scanning once per consumer would be
+        # three times the work and three chances for the reports to disagree.
+        "$WHEELTAP" "${args[@]}"
+        code=$?
+
+        # Exit 2 is Wheeltap failing, not the code failing. Surface it as the
+        # action's own error rather than letting it read as a security finding.
+        if [[ $code -ge 2 ]]; then
+          echo "::error::wheeltap could not complete the scan (exit $code)"
+        fi
+
+        # The count comes out of the JSON report rather than by counting log
+        # lines, which would quietly include the coverage warnings. jq is on
+        # every GitHub-hosted runner; python3 is the belt-and-braces for a
+        # self-hosted one that has neither.
+        findings=""
+        report="$RUNNER_TEMP/wheeltap.json"
+        if [[ -s "$report" ]]; then
+          if command -v jq >/dev/null; then
+            findings=$(jq -r '.summary.findings' "$report")
+          elif command -v python3 >/dev/null; then
+            findings=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["summary"]["findings"])' "$report")
+          fi
+        fi
+
+        {
+          echo "exit-code=$code"
+          echo "findings=$findings"
+        } >> "$GITHUB_OUTPUT"
+
+    # Appended, never overwritten: other steps in the job own this file too.
+    - name: Job summary
+      if: ${{ always() && inputs.job-summary == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -s "$RUNNER_TEMP/wheeltap.md" ]]; then
+          cat "$RUNNER_TEMP/wheeltap.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    # `auto` uploads only where the upload can actually succeed. Code scanning
+    # ingest is free for public repositories and needs Advanced Security for
+    # private ones, and a pull request from a fork has a read-only token — in
+    # both of those cases an unconditional upload would fail the build over
+    # something the author of the pull request cannot fix. The annotations
+    # emitted above need no permissions and appear regardless.
+    - name: Decide whether to upload SARIF
+      id: upload-decision
+      if: ${{ always() }}
+      shell: bash
+      env:
+        REQUESTED: ${{ inputs.upload-sarif }}
+        IS_PRIVATE: ${{ github.event.repository.private }}
+        IS_FORK_PR: ${{ github.event.pull_request.head.repo.fork }}
+      run: |
+        set -euo pipefail
+        case "$REQUESTED" in
+          true)  upload=true ;;
+          false) upload=false ;;
+          auto)
+            upload=true
+            if [[ "$IS_PRIVATE" == "true" ]]; then
+              upload=false
+              echo "private repository: skipping SARIF upload (set upload-sarif: true if you have Advanced Security)"
+            fi
+            if [[ "$IS_FORK_PR" == "true" ]]; then
+              upload=false
+              echo "pull request from a fork: the token is read-only, skipping SARIF upload"
+            fi
+            ;;
+          *)
+            echo "::error::upload-sarif must be true, false, or auto (got '$REQUESTED')"
+            exit 1 ;;
+        esac
+        echo "upload=$upload" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF
+      if: ${{ always() && steps.upload-decision.outputs.upload == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: wheeltap
+
+    # Last, so that annotations, the summary, and the upload all happen before
+    # the job stops. A failure here is the finding, not the tooling.
+    - name: Apply the exit code
+      if: ${{ always() }}
+      shell: bash
+      env:
+        CODE: ${{ steps.scan.outputs.exit-code }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        FINDINGS: ${{ steps.scan.outputs.findings }}
+      run: |
+        set -euo pipefail
+        # An empty code means the scan step did not get as far as recording
+        # one, which is a failure of the tooling — never a pass.
+        code="${CODE:-2}"
+
+        case "$code" in
+          0)
+            echo "Wheeltap found nothing at or above ${FAIL_ON}."
+            ;;
+          1)
+            echo "::error title=Wheeltap::${FINDINGS:-Findings} finding(s) at or above ${FAIL_ON}. See the annotations above."
+            ;;
+          *)
+            echo "::error title=Wheeltap::the scan did not complete (exit $code)"
+            ;;
+        esac
+        exit "$code"

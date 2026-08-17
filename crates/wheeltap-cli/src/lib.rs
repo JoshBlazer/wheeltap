@@ -48,6 +48,14 @@ enum Command {
         #[arg(long, default_value = "json")]
         format: Format,
 
+        /// Also write a report to a file, as `FORMAT=PATH`. May be repeated.
+        ///
+        /// One scan can feed several consumers at once — annotations to the
+        /// log, SARIF to code scanning, Markdown to a job summary — without
+        /// scanning three times for three answers that must agree.
+        #[arg(long, value_name = "FORMAT=PATH")]
+        emit: Vec<scan::Emit>,
+
         /// Do not report findings below this severity.
         #[arg(long, value_name = "SEVERITY", default_value = "info")]
         severity_threshold: Severity,
@@ -100,6 +108,7 @@ pub fn run() -> ExitCode {
         Command::Scan {
             path,
             format,
+            emit,
             severity_threshold,
             fail_on,
             baseline,
@@ -108,6 +117,7 @@ pub fn run() -> ExitCode {
         } => scan::run(&scan::Options {
             path: &path,
             format,
+            emit,
             severity_threshold,
             fail_on,
             baseline,

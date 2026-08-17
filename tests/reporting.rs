@@ -364,3 +364,125 @@ fn fixing_a_finding_removes_it_without_the_baseline_resurrecting_it() {
     assert!(after.findings.is_empty(), "the fix cleared it");
     assert!(baseline.filter_new(after.findings).is_empty());
 }
+
+// ------------------------------------------------- GitHub annotations ----
+
+/// Parse one workflow command back into its parts.
+///
+/// Deliberately a real parse rather than a substring search: if the escaping
+/// is wrong, a comma in a message invents a property and this notices, where
+/// `contains("file=")` would not.
+fn parse_command(line: &str) -> (String, std::collections::HashMap<String, String>, String) {
+    let rest = line.strip_prefix("::").expect("commands start with ::");
+    let (head, body) = rest.split_once("::").expect("a command has a body");
+    let (level, properties) = head.split_once(' ').expect("a command has properties");
+
+    let properties = properties
+        .split(',')
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or_else(|| {
+                panic!("`{pair}` is not a key=value pair — escaping probably leaked a comma")
+            });
+            (key.to_string(), value.to_string())
+        })
+        .collect();
+
+    (level.to_string(), properties, body.to_string())
+}
+
+/// The Phase 5 test that cannot be written as a workflow assertion: every
+/// annotation must name a path that exists from the repository root, at a line
+/// that exists in it, holding the code the finding is about.
+///
+/// A wrong path here does not fail — GitHub just quietly declines to put the
+/// annotation on the diff, and the feature appears to work while doing nothing.
+#[test]
+fn every_annotation_lands_on_the_line_it_describes() {
+    let base = Path::new("fixtures/vulnerable");
+    let report = scan(&fixtures("vulnerable"));
+    assert!(!report.findings.is_empty(), "need findings to place");
+
+    let rendered = wheeltap_report::github::render(&report, base);
+    let lines: Vec<&str> = rendered.lines().collect();
+    assert_eq!(
+        lines.len(),
+        report.findings.len() + report.diagnostics.len(),
+        "one command per line, and no command split across lines"
+    );
+
+    for (line, finding) in lines.iter().zip(&report.findings) {
+        let (level, properties, body) = parse_command(line);
+        assert!(
+            ["error", "warning", "notice"].contains(&level.as_str()),
+            "{level} is not a level GitHub knows"
+        );
+
+        // The path is repository-relative, so it resolves from the repo root.
+        let path = root().join(properties.get("file").expect("file property"));
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("annotation names {}: {err}", path.display()));
+
+        let number: usize = properties["line"].parse().expect("line is a number");
+        let text = source
+            .lines()
+            .nth(number - 1)
+            .unwrap_or_else(|| panic!("{} has no line {number}", path.display()));
+
+        assert_eq!(
+            text.trim(),
+            finding.snippet.trim(),
+            "the annotation on {}:{number} points at the wrong line",
+            path.display()
+        );
+        assert!(!body.is_empty(), "an annotation with no message is useless");
+    }
+}
+
+/// Rust is full of commas and colons, and an unescaped one either truncates
+/// the command or fabricates a property. Proven against real findings rather
+/// than a hand-written string.
+#[test]
+fn annotations_survive_the_punctuation_in_real_findings() {
+    let report = scan(&fixtures("vulnerable"));
+    let rendered = wheeltap_report::github::render(&report, Path::new("fixtures/vulnerable"));
+
+    let expected = ["file", "line", "col", "title"];
+    for line in rendered.lines() {
+        let (_, properties, _) = parse_command(line);
+        for key in expected {
+            assert!(properties.contains_key(key), "`{key}` missing from {line}");
+        }
+        for key in properties.keys() {
+            assert!(
+                expected.contains(&key.as_str()) || key == "endLine",
+                "`{key}` is not a property we emit — escaping leaked a comma: {line}"
+            );
+        }
+    }
+}
+
+/// The severity a finding was given has to survive the squeeze into GitHub's
+/// three levels, or every critical and high finding looks identical.
+#[test]
+fn the_severity_of_every_annotation_is_recoverable() {
+    let report = scan(&fixtures("vulnerable"));
+    let rendered = wheeltap_report::github::render(&report, Path::new("fixtures/vulnerable"));
+
+    for (line, finding) in rendered.lines().zip(&report.findings) {
+        let (_, properties, _) = parse_command(line);
+        assert_eq!(
+            properties["title"],
+            format!("{} {}", finding.rule, finding.severity),
+            "the title has to carry the rule and the real severity"
+        );
+    }
+}
+
+/// Safe fixtures produce no annotations at all — not an empty command, not a
+/// blank line. A clean run must be genuinely silent.
+#[test]
+fn a_clean_scan_annotates_nothing() {
+    let rendered =
+        wheeltap_report::github::render(&scan(&fixtures("safe")), Path::new("fixtures/safe"));
+    assert_eq!(rendered, "", "safe fixtures annotated: {rendered}");
+}

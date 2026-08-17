@@ -558,3 +558,212 @@ same moment, and costs nothing when ignored.
   comment.
 - The warning appears as a diagnostic, so it is in JSON and SARIF output too,
   not only on the terminal.
+
+---
+
+## ADR-013 — One scan renders every format: `--emit FORMAT=PATH`
+
+**Date:** 2026-08-17
+**Status:** Accepted
+
+### Context
+
+A CI run wants three views of the same scan at once: workflow-command
+annotations in the log, SARIF on disk for code scanning to ingest, and Markdown
+for the job summary. `--format` writes one thing to stdout.
+
+The obvious workaround is to run the scanner once per consumer, which the Action
+would have done three times per job.
+
+### Decision
+
+Add `--emit FORMAT=PATH`, repeatable, writing an additional report to a file for
+each occurrence. `--format` continues to control stdout.
+
+```console
+$ wheeltap scan programs --format github \
+    --emit sarif=wheeltap.sarif --emit markdown=summary.md
+```
+
+### Rationale
+
+Three scans of the same tree is three times the work for the same answer, but
+the cost is not the real objection — analysis is under a second on 73,000 lines.
+The objection is that three scans are three *chances to disagree*. If a file
+changes between them, the annotations, the alerts, and the summary describe
+different states of the repository, and nothing in the output says so.
+
+One scan, many renderings, makes that class of inconsistency impossible rather
+than unlikely.
+
+The alternative considered was a pair of special-purpose flags, `--sarif-file`
+and `--summary-file`. Those are two concepts where this is one, and a third
+consumer would have wanted a third flag.
+
+### Consequences
+
+- Files are written before stdout. A `wheeltap ... | head` closing the pipe must
+  not be able to skip an artefact a later CI step depends on.
+- Parent directories are created, so `--emit sarif=reports/out.sarif` works on a
+  fresh checkout without a preceding `mkdir`.
+- The split is on the *first* `=`, so paths may contain `=` and `:` — which
+  Windows paths do.
+
+---
+
+## ADR-014 — Annotations are a reporter, not shell in the Action
+
+**Date:** 2026-08-17
+**Status:** Accepted
+
+### Context
+
+Inline pull-request annotations are GitHub workflow commands:
+
+```
+::error file=src/lib.rs,line=37,col=9,title=WT001 critical::message
+```
+
+The Action could produce these by piping JSON through `jq`, which is the usual
+approach and needs no changes to the tool.
+
+### Decision
+
+Add `github` as a first-class output format in `wheeltap-report`, alongside
+JSON, Markdown, and SARIF.
+
+### Rationale
+
+The format has two hazards that shell handles badly.
+
+**Escaping.** Commands are line-oriented and delimited by `,` and `::`. Rust
+source is full of both. An unescaped comma in a message does not fail — it
+invents a property GitHub ignores, truncating the message at the comma. A
+literal newline ends the command entirely. In `jq` this is a fragile
+`gsub` chain; in Rust it is a function with tests that assert `%` is escaped
+before the characters that use it as their prefix.
+
+**Path resolution.** GitHub matches an annotation to a diff line by
+repository-relative path. A finding's path is relative to the *scanned* root, so
+scanning `programs/` yields `vault/src/lib.rs` where the repository knows
+`programs/vault/src/lib.rs`. Getting this wrong is silent: the annotation still
+prints in the log, it just stops appearing on the diff. Nothing fails, and the
+feature looks like it works.
+
+Silent failure is the argument. Shell in a YAML file cannot be tested;
+`tests/reporting.rs` opens every annotated path from the repository root, reads
+the line the annotation names, and asserts it holds the code the finding is
+about.
+
+### Consequences
+
+- `wheeltap scan --format github` is useful outside the Action, in any CI that
+  understands workflow commands.
+- The renderer needs the scanned base path, so `render` takes it as an argument
+  rather than reading it off the report.
+- Five severities compress into GitHub's three levels. The real severity
+  survives in the annotation title, and as a number in SARIF's
+  `security-severity`.
+- Coverage warnings are annotated too. A scan that stayed quiet about the files
+  it could not parse would let a green check mean more than it should.
+
+---
+
+## ADR-015 — Both annotation channels, and `upload-sarif: auto`
+
+**Date:** 2026-08-17
+**Status:** Accepted
+
+### Context
+
+There are two ways to get findings onto a pull request. SARIF upload creates
+persistent, deduplicated code scanning alerts. Workflow commands create inline
+annotations that live only in that run.
+
+SARIF is clearly better — except that uploading it needs
+`security-events: write`, and code scanning ingest requires GitHub Advanced
+Security on private repositories. A pull request from a fork has a read-only
+token and cannot upload at all.
+
+### Decision
+
+Emit annotations always. Upload SARIF when it can succeed, decided by
+`upload-sarif: auto` — the default — which skips the upload on private
+repositories and on fork pull requests. `true` and `false` force the choice.
+
+### Rationale
+
+An unconditional upload fails the build over a permission the pull request's
+author cannot grant, on a run where the analysis itself worked perfectly. The
+first thing anyone does about a step that fails for reasons unrelated to their
+change is delete the step.
+
+Skipping silently is the other error. `auto` prints why it skipped and what to
+set instead, so the reason is in the log rather than in a support thread.
+
+The nuisance underneath this is that a composite action's steps do not accept
+`continue-on-error` — it is only available on a job's own steps — so the action
+cannot simply attempt the upload and shrug off a failure. Deciding beforehand is
+the workaround, and it also produces a better message than a swallowed error
+would.
+
+### Consequences
+
+- Annotations appear in every configuration, including fork pull requests, which
+  is exactly where an external contributor most needs to see the finding.
+- GitHub displays at most ten annotations of each level per step. The log and the
+  SARIF report are complete; the bubbles are not. Documented in the Action's
+  README, and the reason SARIF stays the primary channel.
+- The self-test workflow uploads for real on pushes to `main`, which is what
+  closes Phase 4's exit criterion — schema validity is not evidence of ingestion.
+
+---
+
+## ADR-016 — The Action's version is the ref you pinned
+
+**Date:** 2026-08-17
+**Status:** Accepted
+
+### Context
+
+A composite action that runs a compiled binary has to get one. The usual
+approaches are a `version` input, a Docker image, or vendoring a binary into the
+repository.
+
+### Decision
+
+No version input. The Action resolves its version from the `Cargo.toml` in its
+own checkout, then obtains a binary in three fallbacks: the run cache, the
+release archive for that version, and a build from source.
+
+### Rationale
+
+A `version` input is a second place to record the same fact, and the failure it
+produces — `@v1.0.0` running a `v0.9.0` binary because someone updated one line
+and not the other — is invisible in the logs. Reading the version out of the
+pinned checkout makes the ref the single source of truth.
+
+Docker was the alternative. It removes the toolchain requirement, but a
+container start costs more than downloading a 4 MB static binary, image
+publishing is a second release pipeline to keep in step, and Docker actions run
+only on Linux runners.
+
+The build-from-source fallback exists because there is no release for every ref.
+Pull requests against this repository, and anyone pinning `@main`, need a path
+that works without one — and it is the path this repository's own Action tests
+run on.
+
+### Consequences
+
+- Pinning a tag gives a download. Pinning a branch gives a build, once, then a
+  cache hit; the Action says which happened.
+- The cache key carries the target triple, the version, and the action ref, so a
+  moving ref still picks up a rebuild. `hashFiles` cannot be used for this: it
+  resolves paths only inside the workspace, and a remote action is checked out
+  well outside it.
+- A source build needs Rust on the runner. The Action says so by name when it is
+  missing, rather than failing on `cargo: command not found`.
+- Releases must ship an archive per platform with the bare binary at its root.
+  `release.yml` builds five, and smoke-tests each one against the vulnerable
+  fixtures before it is uploaded — a binary that builds but reports nothing
+  would otherwise ship unnoticed.

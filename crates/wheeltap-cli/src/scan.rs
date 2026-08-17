@@ -13,9 +13,40 @@ use wheeltap_report::Format;
 
 use crate::{EXIT_CLEAN, EXIT_ERROR, EXIT_FINDINGS};
 
+/// An extra report to write to a file, alongside the one on stdout.
+///
+/// A CI run wants three views of one scan: annotations in the log, SARIF for
+/// code scanning, and Markdown for the job summary. Scanning three times to get
+/// them would triple the work for identical results, and — worse — three scans
+/// are three chances to disagree. One scan, many renderings.
+#[derive(Debug, Clone)]
+pub struct Emit {
+    pub format: Format,
+    pub path: PathBuf,
+}
+
+impl std::str::FromStr for Emit {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (format, path) = s
+            .split_once('=')
+            .ok_or_else(|| format!("expected FORMAT=PATH, got `{s}`"))?;
+        if path.is_empty() {
+            return Err(format!("`{s}` has no path after the `=`"));
+        }
+        Ok(Self {
+            format: format.parse()?,
+            path: PathBuf::from(path),
+        })
+    }
+}
+
 pub struct Options<'a> {
     pub path: &'a Path,
     pub format: Format,
+    /// Extra reports to write to files, in addition to stdout.
+    pub emit: Vec<Emit>,
     /// Findings below this severity are not reported at all.
     pub severity_threshold: Severity,
     /// Findings at or above this severity make the command exit 1.
@@ -87,13 +118,28 @@ pub fn run(options: &Options<'_>) -> ExitCode {
         );
     }
 
-    let text = match render(options.format, &report) {
+    // Findings carry paths relative to the scanned root. GitHub matches an
+    // annotation to a diff by repository-relative path, so the renderer needs
+    // the base to put back — see `wheeltap_report::github`.
+    let base = annotation_base(options.path);
+
+    let text = match render(options.format, &report, &base) {
         Ok(text) => text,
         Err(message) => {
             eprintln!("wheeltap: {message}");
             return ExitCode::from(EXIT_ERROR);
         }
     };
+
+    // Files first: stdout may be a closed pipe, and a `--emit sarif=...` that
+    // silently did not happen because someone piped to `head` would be a
+    // genuinely confusing way to lose a CI artefact.
+    for emit in &options.emit {
+        if let Err(message) = write_emit(emit, &report, &base) {
+            eprintln!("wheeltap: {message}");
+            return ExitCode::from(EXIT_ERROR);
+        }
+    }
 
     if let Err(err) = write(&mut io::stdout().lock(), &text) {
         return crate::write_failure(&err);
@@ -157,11 +203,36 @@ fn load_config(options: &Options<'_>) -> Result<Config, String> {
         .map_err(|err| err.to_string())
 }
 
-fn render(format: Format, report: &Report) -> Result<String, String> {
+/// The prefix that turns a finding's path back into a repository-relative one.
+///
+/// `loader::load` roots a directory scan at the directory and a single-file
+/// scan at its parent; this mirrors that, so the two cannot drift apart.
+fn annotation_base(path: &Path) -> PathBuf {
+    if path.is_file() {
+        path.parent().unwrap_or(Path::new(".")).to_path_buf()
+    } else {
+        path.to_path_buf()
+    }
+}
+
+fn write_emit(emit: &Emit, report: &Report, base: &Path) -> Result<(), String> {
+    let text = render(emit.format, report, base)?;
+
+    if let Some(parent) = emit.path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("could not create {}: {err}", parent.display()))?;
+    }
+
+    std::fs::write(&emit.path, text)
+        .map_err(|err| format!("could not write {}: {err}", emit.path.display()))
+}
+
+fn render(format: Format, report: &Report, base: &Path) -> Result<String, String> {
     match format {
         Format::Json => wheeltap_report::json::render(report)
             .map_err(|err| format!("could not serialise the report: {err}")),
         Format::Markdown => Ok(wheeltap_report::markdown::render(report)),
+        Format::Github => Ok(wheeltap_report::github::render(report, base)),
         Format::Sarif => {
             let rules: Vec<_> = wheeltap_rules::all()
                 .iter()
@@ -248,10 +319,77 @@ mod tests {
     #[test]
     fn every_format_renders() {
         let report = report_with(&[Severity::Critical]);
-        for format in [Format::Json, Format::Markdown, Format::Sarif] {
-            let text = render(format, &report)
-                .unwrap_or_else(|err| panic!("{} failed: {err}", format.as_str()));
-            assert!(!text.is_empty(), "{} produced nothing", format.as_str());
+        for format in wheeltap_report::ALL_FORMATS {
+            let text = render(format, &report, Path::new("."))
+                .unwrap_or_else(|err| panic!("{format} failed: {err}"));
+            assert!(!text.is_empty(), "{format} produced nothing");
+        }
+    }
+
+    #[test]
+    fn emit_parses_a_format_and_a_path() {
+        let emit: Emit = "sarif=out/report.sarif".parse().expect("valid");
+        assert_eq!(emit.format, Format::Sarif);
+        assert_eq!(emit.path, Path::new("out/report.sarif"));
+    }
+
+    /// These are typed into a workflow file, where the feedback loop on a typo
+    /// is a push and a wait. The error has to say what was wrong.
+    #[test]
+    fn a_malformed_emit_is_rejected_with_a_useful_message() {
+        assert!(
+            "sarif".parse::<Emit>().unwrap_err().contains("FORMAT=PATH"),
+            "a missing `=` names the shape expected"
+        );
+        assert!(
+            "yaml=out.yml"
+                .parse::<Emit>()
+                .unwrap_err()
+                .contains("sarif"),
+            "an unknown format lists the ones that exist"
+        );
+        assert!("sarif=".parse::<Emit>().is_err(), "an empty path is a typo");
+    }
+
+    /// Windows path separators would otherwise be read as an absolute path on
+    /// a drive; `=` splits once, from the left, so `C:\x` survives intact.
+    #[test]
+    fn an_emit_path_may_contain_equals_and_colons() {
+        let emit: Emit = "json=out=1/a:b.json".parse().expect("valid");
+        assert_eq!(emit.path, Path::new("out=1/a:b.json"));
+    }
+
+    #[test]
+    fn the_annotation_base_mirrors_how_the_loader_roots_a_scan() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("lib.rs");
+        std::fs::write(&file, "fn main() {}").expect("write");
+
+        assert_eq!(annotation_base(dir.path()), dir.path());
+        assert_eq!(annotation_base(&file), dir.path());
+    }
+
+    #[test]
+    fn emit_writes_every_requested_format_to_disk() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let report = report_with(&[Severity::Critical]);
+
+        for format in wheeltap_report::ALL_FORMATS {
+            // A nested path proves the parent directory is created rather than
+            // failing the run at the last step of a long CI job.
+            let path = dir.path().join("reports").join(format.to_string());
+            let emit = Emit {
+                format,
+                path: path.clone(),
+            };
+
+            write_emit(&emit, &report, Path::new(".")).expect("write");
+            let written = std::fs::read_to_string(&path).expect("read back");
+            assert_eq!(
+                written,
+                render(format, &report, Path::new(".")).expect("render"),
+                "{format} on disk differs from {format} on stdout"
+            );
         }
     }
 }

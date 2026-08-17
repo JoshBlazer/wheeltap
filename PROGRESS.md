@@ -1,8 +1,8 @@
 # Wheeltap — Progress
 
-**Current phase:** 4 complete — next is 5, the GitHub Action and distribution
-**Last updated:** 2026-08-12
-**Build status:** green — `fmt --check`, `clippy -D warnings`, and 155 tests pass
+**Current phase:** 5 built — next is 6, validation and release
+**Last updated:** 2026-08-17
+**Build status:** green — `fmt --check`, `clippy -D warnings`, and 187 tests pass
 on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 
 ## Phase status
@@ -13,9 +13,9 @@ on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 | 1 | Loader, parser, program context | **done** | yes | `debug-context` models all three corpus programs accurately; 64 tests |
 | 2 | Detector engine + WT001-WT003 | **done** | yes | `scan fixtures/vulnerable` catches all three; `scan fixtures/safe` reports nothing |
 | 3 | Full detector suite | **done** | yes | All twelve rules implemented; corpus hand-triaged in `docs/BENCHMARKS.md` |
-| 4 | Reporting, suppression, baselines | **done** | partly — see note | Markdown + SARIF (schema-validated), suppression, `--baseline`. The stated exit criterion is a SARIF *upload* annotating a PR, which needs the Action from Phase 5 |
-| 5 | GitHub Action and distribution | next | — | Also completes Phase 4's exit criterion by uploading SARIF for real |
-| 6 | Validation, documentation, release | not started | — | |
+| 4 | Reporting, suppression, baselines | **done** | yes | Markdown + SARIF (schema-validated), suppression, `--baseline`. The SARIF *upload* criterion is met by the `upload` job in `action.yml`, which ingests for real on every push to `main` |
+| 5 | GitHub Action and distribution | **built** | partly — see note | Action, `github` annotation format, release pipeline, and crates.io packaging all done and tested. Two tasks need a human: the demo pull request and its screenshot, and a crates.io token |
+| 6 | Validation, documentation, release | next | — | The audit comparison against drift's two published audits is the substantial piece |
 
 ## Detector status
 
@@ -142,9 +142,51 @@ one Phase 2 decision reversed on new evidence.
   the code reports nothing, and a genuinely new vulnerability appears.
 - **`--format`, `--severity-threshold`, `--fail-on`, `--config`.**
 
+**Phase 5 — the Action and distribution.**
+
+- **`--format github`**: GitHub Actions workflow commands, so findings appear as
+  inline annotations on the pull-request diff. Built as a reporter rather than
+  as `jq` in a YAML file, because both of its hazards fail silently — an
+  unescaped comma truncates a message, and a path relative to the wrong root
+  still prints but stops landing on the diff (ADR-014).
+- **`--emit FORMAT=PATH`**, repeatable. One scan renders annotations to the log,
+  SARIF to disk, and Markdown to the job summary. Scanning three times would be
+  three chances for the three reports to disagree (ADR-013).
+- **The Action**, `action/action.yml`: composite, inputs `path`,
+  `severity-threshold`, `fail-on`, `baseline`, `format`, `config`,
+  `upload-sarif`, `sarif-file`, `job-summary`; outputs `findings`, `exit-code`,
+  `sarif-file`. Defaults match the CLI exactly, so a CI result reproduces
+  locally without translating flags.
+- **Both annotation channels.** Annotations always; SARIF uploaded when it can
+  succeed. `upload-sarif: auto` skips private repositories and fork pull
+  requests and says why, rather than failing the build over a permission the
+  contributor cannot grant (ADR-015).
+- **Binary resolution in three fallbacks** — run cache, release archive, build
+  from source — with the version read from the pinned checkout, so the ref you
+  pin is the version you get (ADR-016).
+- **`release.yml`**: five platform archives, each smoke-tested against the
+  vulnerable fixtures before upload, plus a tag/manifest agreement check and
+  crates.io publication in dependency order.
+- **Packaged for crates.io**: `[package] exclude` keeps the 3 MB vendored
+  corpus, the schema, and the tests out of `cargo install wheeltap` — 13 files.
+
+**Phase 5 tests** (the Action is tested the way people use it, as `uses:`):
+
+| Gate | Where | Result |
+|---|---|---|
+| Action fails the build on vulnerable fixtures | `action.yml`, `vulnerable` job | asserts `outcome == failure`, exit 1, findings > 0 |
+| Action passes on safe fixtures | `action.yml`, `safe` job | asserts exit 0 and zero findings |
+| SARIF is uploaded and ingested | `action.yml`, `upload` job, `main` only | closes the Phase 4 criterion |
+| A baseline suppresses pre-existing findings | `action.yml`, `baseline` job | end to end through the Action |
+| **Annotations land on the line they describe** | `tests/reporting.rs` | opens every annotated path from the repository root and compares the line to the finding's snippet |
+| Escaping survives real findings | `tests/reporting.rs` | parses each command back and rejects any property we did not emit |
+
 ## What does not work yet
 
-- **Not published**: no GitHub Action, and nothing on crates.io (Phase 5).
+- **Nothing is published yet.** The release pipeline is written and the package
+  is clean, but no tag has been cut and crates.io needs a token (Phase 6).
+- **No demo pull request or screenshot.** The Action's behaviour is asserted in
+  CI; the persuasive artefact still has to be produced against a real PR.
 - **The audit comparison is unwritten** (Phase 6). `docs/BENCHMARKS.md` has the
   false-positive measurements but not the credibility exercise.
 - Module paths are resolved within a file only; `mod x;` is not followed to
@@ -176,6 +218,10 @@ one Phase 2 decision reversed on new evidence.
 | 2026-08-12 | WT005 skips accounts under `init`, unwritten accounts, and instructions holding two accounts of one type | An account being created has no prior state to check; 116 corpus findings fell to 15 | Report them and document (would have made WT005 the loudest rule by an order of magnitude) |
 | 2026-08-12 | WT004 fires only on the program's own `#[account]` state | `init_if_needed` on an associated token account is the idiomatic use and appears in nearly every token program; the inner-type test excludes it exactly | Flag every `init_if_needed` (flags a language feature) |
 | 2026-08-12 | WT011 and WT005 read handler bodies, not just constraints | Drift asserts `from_user_key != to_user_key` in the handler for all twelve of its transfer and liquidation instructions | Constraints only (12 false positives on drift alone) |
+| 2026-08-17 | ADR-013: `--emit FORMAT=PATH` instead of one scan per consumer | Three scans for annotations, SARIF, and the job summary are three chances to describe different states of the tree | Special-purpose `--sarif-file` and `--summary-file` (two concepts where this is one) |
+| 2026-08-17 | ADR-014: annotations are a reporter, not `jq` in the Action | Both failure modes are silent — an unescaped comma truncates the message, a wrongly-rooted path still prints but never reaches the diff. Shell in YAML cannot be tested; the reporter is | `jq` in the composite action (the usual approach, untestable) |
+| 2026-08-17 | ADR-015: emit annotations always, upload SARIF on `auto` | An unconditional upload fails the build over a permission a fork's contributor cannot grant, on a run where the analysis worked | Upload unconditionally (breaks fork PRs and private repos); annotations only (loses persistent alerts) |
+| 2026-08-17 | ADR-016: the Action's version is the ref you pinned | A `version` input is a second place to record one fact, and the mismatch it produces is invisible in the logs | Docker action (Linux only, second release pipeline); a `version` input; vendoring a binary |
 
 ## Known false positives / negatives
 
@@ -253,39 +299,44 @@ pushed.
 `~/.local/bin/gh`, authenticated as `JoshBlazer` over HTTPS with `repo` and
 `workflow` scopes.
 
-The four questions the build spec (§10) requires answering before Phase 3:
+~~**Q4 — Anchor only for v1.0, or attempt CosmWasm?**~~ **Resolved 2026-08-12,
+ADR-007.** Anchor only. Eleven of the twelve rules are questions about Anchor's
+account-validation model, which CosmWasm does not have — nothing transfers.
 
-**Q4 — Anchor only for v1.0, or attempt CosmWasm?**
-Recommendation: **Anchor only.** Depth beats breadth, and the detector quality
-bar is the whole point of the project.
+~~**Q5 — Publish to crates.io as `wheeltap`?**~~ **Resolved 2026-08-12,
+ADR-008.** Yes; `wheeltap`, `wheeltap-core`, and `wheeltap-cli` are all
+unclaimed. Packaging is done and the release workflow publishes in dependency
+order; the token is the only thing outstanding.
 
-**Q5 — Publish to crates.io as `wheeltap`?**
-The name appears unclaimed. Worth reserving early if the project is going ahead
-under that name.
+~~**Q6 — Which audited program for the Phase 6 validation exercise?**~~
+**Resolved 2026-08-12, ADR-009.** `drift`, against **two** published audits —
+Neodyme and Trail of Bits — both confirmed reachable.
 
-**Q6 — Which audited program for the Phase 6 validation exercise?**
-Recommendation: **`drift`**, already vendored. It ships an `AUDIT.md` listing
-published third-party audits, it is large enough for the comparison to be
-meaningful, and it is Apache-2.0.
+~~**Q7 — Is the GitHub Action in scope for v1.0?**~~ **Resolved 2026-08-12,
+ADR-010.** In scope, and built in Phase 5.
 
-**Q7 — Is the GitHub Action in scope for v1.0?**
-Recommendation: **in scope.** It is a large share of the project's perceived
-value and the most persuasive artefact for a portfolio.
+### Open, and needing the human
+
+**Q9 — crates.io token.** Publication is the last step of `release.yml` and
+needs `CARGO_REGISTRY_TOKEN` as a repository secret. Without it the job prints
+a warning and skips rather than failing, so a tag is safe to cut either way.
+
+**Q10 — The demo pull request.** Spec task 5.4 wants a pull request showing the
+Action catching a real bug, screenshotted for the README. Opening it is an
+outward-facing action on a public repository, so it is waiting on a go-ahead.
+The screenshot itself has to be taken by a human.
 
 ## Next actions
 
-1. Answer Q4 to Q7 and record them in `DECISIONS.md`. **Q4 and Q6 must be
-   settled before Phase 3.**
-2. Begin Phase 2 — the detector engine and the first three rules:
-   - `Detector` trait and registry; `Finding` with deterministic identity per
-     build spec §4.3, `hash(rule_id, relative_path, enclosing_item_path,
-     normalised_snippet)`. The context already carries `item_path` on every
-     field and handler for exactly this.
-   - **Fixtures first**, per rule: the vulnerable case, then at least two safe
-     cases a naive implementation would flag, then the `docs/DETECTORS.md`
-     entry, then the detector.
-   - WT001 missing signer, WT002 missing owner, WT003 unchecked arithmetic.
-   - JSON reporter; `wheeltap scan` with exit codes 0/1/2.
-3. Phase 2 exit: `wheeltap scan fixtures/vulnerable` catches everything and
-   `wheeltap scan fixtures/safe` reports nothing, with the no-false-positive
-   assertion enforced globally across every rule.
+1. **Phase 6, the credibility exercise.** Run Wheeltap against `drift` and
+   compare with the Neodyme and Trail of Bits reports. Document what was caught,
+   what was missed and what class of analysis each miss would need, and what was
+   flagged that the auditors did not — **including the misses**, which is the
+   part that makes the rest believable.
+2. Complete `docs/BENCHMARKS.md`: scan time by program size, false-positive rate.
+3. README per build spec §9, with the PR annotation screenshot and an asciinema
+   recording of a scan.
+4. Tag `v1.0.0`. The release workflow builds five platform archives, verifies
+   the tag against the manifest, and publishes the crates once a token exists.
+5. Final `PROGRESS.md`: every phase done, with the false positives and negatives
+   listed rather than quietly dropped.

@@ -1,0 +1,190 @@
+name: Release
+
+# Tag `vX.Y.Z` and this builds the binaries the Action downloads, publishes the
+# crates, and cuts the GitHub release. Nothing here runs on an ordinary push:
+# the tag is the trigger, and the tag must agree with the manifest.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Build and package, but publish nothing.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # A tag that disagrees with Cargo.toml produces a release whose binaries
+  # report a different version from the one people downloaded. Catch it before
+  # anything is built rather than after it is public.
+  verify:
+    name: tag matches the manifest
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: version
+        run: |
+          set -euo pipefail
+          version=$(awk -F'"' '/^version[[:space:]]*=[[:space:]]*"/ {print $2; exit}' Cargo.toml)
+          echo "manifest version: $version"
+
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            tag="${{ github.ref_name }}"
+            [[ "$tag" == "v$version" ]] || {
+              echo "::error::tag $tag does not match Cargo.toml version $version"
+              exit 1; }
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.target }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,     target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm,  target: aarch64-unknown-linux-gnu }
+          - { os: macos-13,          target: x86_64-apple-darwin }
+          - { os: macos-latest,      target: aarch64-apple-darwin }
+          - { os: windows-latest,    target: x86_64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # The archive holds the bare binary at its root, because the Action
+      # extracts it straight into the directory it runs from.
+      - name: Package
+        shell: bash
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          exe=""
+          [[ "$RUNNER_OS" == "Windows" ]] && exe=".exe"
+
+          bin="target/$TARGET/release/wheeltap$exe"
+          test -x "$bin" || test -f "$bin"
+
+          # A release build carries megabytes of symbols nobody downloading a
+          # linter needs. Windows keeps them in a separate .pdb already.
+          if [[ "$RUNNER_OS" != "Windows" ]]; then strip "$bin" || true; fi
+
+          name="wheeltap-${VERSION}-${TARGET}.tar.gz"
+          tar -czf "$name" -C "target/$TARGET/release" "wheeltap$exe"
+          echo "ARCHIVE=$name" >> "$GITHUB_ENV"
+
+      - name: Smoke test the binary we are about to ship
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=""
+          [[ "$RUNNER_OS" == "Windows" ]] && exe=".exe"
+          bin="target/${{ matrix.target }}/release/wheeltap$exe"
+
+          "$bin" --version
+          # Exit 1 on vulnerable fixtures is the whole contract. A binary that
+          # builds but reports nothing would ship silently without this.
+          set +e
+          "$bin" scan fixtures/vulnerable --format json > /dev/null
+          code=$?
+          set -e
+          [[ $code -eq 1 ]] || { echo "::error::expected exit 1, got $code"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: [verify, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -l artifacts
+          gh release create "v$VERSION" artifacts/*.tar.gz \
+            --title "v$VERSION" \
+            --generate-notes \
+            --verify-tag
+
+  crates-io:
+    name: crates.io
+    needs: [verify, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Publication order is dependency order; a crate cannot be published
+      # before the crates it depends on are resolvable from the registry.
+      # `cargo publish` waits for the index itself, but not indefinitely, so
+      # each step is allowed to retry.
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+            echo "::warning::CARGO_REGISTRY_TOKEN is not set — skipping crates.io. Add the secret and re-run this job."
+            exit 0
+          fi
+
+          for crate in wheeltap-core wheeltap-report wheeltap-rules wheeltap-cli wheeltap; do
+            echo "::group::publishing $crate"
+            manifest="Cargo.toml"
+            [[ "$crate" != "wheeltap" ]] && manifest="crates/$crate/Cargo.toml"
+
+            for attempt in 1 2 3; do
+              if cargo publish --locked --manifest-path "$manifest"; then
+                break
+              fi
+              # Already published at this version is success, not failure:
+              # it makes re-running the job after a partial failure safe.
+              if cargo search "$crate" | grep -q "^$crate = \"${{ needs.verify.outputs.version }}\""; then
+                echo "$crate is already at this version"
+                break
+              fi
+              [[ $attempt -eq 3 ]] && { echo "::error::could not publish $crate"; exit 1; }
+              echo "retrying in 30s (the index may not have caught up)"
+              sleep 30
+            done
+            echo "::endgroup::"
+          done

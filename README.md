@@ -8,9 +8,10 @@ findings as JSON, Markdown, or SARIF.
 > train striking each wheel with a long hammer, listening for the dull note that
 > betrayed a crack invisible from the outside.
 
-> ⚠️ **Under construction — Phase 5 of 6.** All twelve detectors, three output
-> formats, suppression, and baselines are implemented. The GitHub Action and
-> crates.io release come next. `PROGRESS.md` is the live status. This notice
+> ⚠️ **Under construction — Phase 6 of 6.** All twelve detectors, four output
+> formats, suppression, baselines, and the GitHub Action are implemented and
+> tested. What remains is the audit comparison and the v1.0.0 release, so
+> nothing is on crates.io yet. `PROGRESS.md` is the live status. This notice
 > comes out at v1.0.0.
 
 ## The problem
@@ -48,9 +49,32 @@ syntax-and-pattern-level linter, and claims exactly that much. Where a detector
 approximates dataflow it says so, and its findings are marked
 `confidence: medium`.
 
+## In CI, in five lines
+
+```yaml
+- uses: actions/checkout@v5
+- uses: JoshBlazer/wheeltap@v1
+  with:
+    path: programs
+```
+
+Findings appear as inline annotations on the diff, and as code scanning alerts
+where the repository can accept them. The build fails on anything at or above
+`fail-on`. [`action/README.md`](action/README.md) has the inputs, the adoption
+path for a codebase that already has findings, and what `upload-sarif: auto`
+decides for you.
+
+Until `v1` is tagged there is no release archive to download, so pin `@main` and
+give the Action a toolchain to build with:
+
+```yaml
+- uses: dtolnay/rust-toolchain@stable
+- uses: JoshBlazer/wheeltap@main
+```
+
 ## Quickstart
 
-_Not yet installable — Phase 5._ The intended shape:
+_Not yet published — the v1.0.0 release is Phase 6._ The intended shape:
 
 ```console
 $ cargo install wheeltap
@@ -93,8 +117,20 @@ how you find out whether a missing finding is the rule's fault or the parser's.
 ```console
 $ wheeltap scan ./programs --format markdown          # for a CI log
 $ wheeltap scan ./programs --format sarif > out.sarif # for GitHub code scanning
+$ wheeltap scan ./programs --format github            # inline PR annotations
 $ wheeltap scan ./programs --severity-threshold high --fail-on critical
 ```
+
+One scan can serve several consumers at once. `--emit FORMAT=PATH` is
+repeatable and writes alongside whatever `--format` puts on stdout:
+
+```console
+$ wheeltap scan ./programs --format github \
+    --emit sarif=wheeltap.sarif --emit markdown=summary.md
+```
+
+This is what the Action runs. Scanning three times for three consumers would be
+three chances to describe three different states of the repository.
 
 ## Suppression
 
@@ -233,11 +269,11 @@ off. Both are failures.
 |---|---|
 | `crates/wheeltap-core` | Types, program context model, detector engine |
 | `crates/wheeltap-rules` | One module per detector |
-| `crates/wheeltap-report` | JSON, Markdown, SARIF reporters |
+| `crates/wheeltap-report` | JSON, Markdown, SARIF, and annotation reporters |
 | `crates/wheeltap-cli` | Command-line interface |
 | `fixtures/` | Vulnerable, safe, and vendored real-program corpora |
 | `docs/` | Detector catalogue and benchmarks |
-| `action/` | GitHub Action (Phase 5) |
+| `action/` | GitHub Action |
 
 `PROGRESS.md` tracks status; `DECISIONS.md` records why the architecture is what
 it is.
