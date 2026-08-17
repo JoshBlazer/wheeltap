@@ -214,6 +214,16 @@ runs:
           echo "findings=$findings"
         } >> "$GITHUB_OUTPUT"
 
+        # GitHub discards a composite action's outputs when the action fails,
+        # and failing is the case anyone wants to inspect. Environment
+        # variables survive it, so the same two numbers are published both
+        # ways; a later `if: always()` step can always read them.
+        {
+          echo "WHEELTAP_EXIT_CODE=$code"
+          echo "WHEELTAP_FINDINGS=$findings"
+          echo "WHEELTAP_SARIF_FILE=$SARIF_FILE"
+        } >> "$GITHUB_ENV"
+
     # Appended, never overwritten: other steps in the job own this file too.
     - name: Job summary
       if: ${{ always() && inputs.job-summary == 'true' }}

@@ -50,14 +50,27 @@ the CLI exactly, so a run reproduces locally without translating flags.
 
 ## Outputs
 
-| Output | Meaning |
-|---|---|
-| `findings` | Number of findings after suppression and thresholds |
-| `exit-code` | `0` clean, `1` findings at or above `fail-on`, `2` error |
-| `sarif-file` | Path to the SARIF report, uploaded or not |
+| Output | Environment variable | Meaning |
+|---|---|---|
+| `findings` | `WHEELTAP_FINDINGS` | Number of findings after suppression and thresholds |
+| `exit-code` | `WHEELTAP_EXIT_CODE` | `0` clean, `1` findings at or above `fail-on`, `2` error |
+| `sarif-file` | `WHEELTAP_SARIF_FILE` | Path to the SARIF report, uploaded or not |
 
-`exit-code` is set even when the step fails, so a later step can read it — but
-only if that step is marked `if: always()`.
+**Read the environment variables, not the outputs, after a failing run.** GitHub
+discards a composite action's outputs when the action fails — which is precisely
+the run you want to inspect. The same values are published both ways for that
+reason.
+
+```yaml
+- uses: JoshBlazer/wheeltap@v1
+  id: wheeltap
+  continue-on-error: true
+  with:
+    path: programs
+
+- if: always()
+  run: echo "$WHEELTAP_FINDINGS finding(s), exit $WHEELTAP_EXIT_CODE"
+```
 
 ## Two channels, deliberately
 

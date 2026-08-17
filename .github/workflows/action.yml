@@ -41,20 +41,22 @@ jobs:
           upload-sarif: false
           job-summary: false
 
+      # Read the environment variables rather than the step outputs: GitHub
+      # discards a composite action's outputs when the action fails, and here
+      # the action failing is the expected result. This is also why the
+      # Action publishes both.
       - name: The build should have failed
         run: |
           set -euo pipefail
           outcome='${{ steps.scan.outcome }}'
-          code='${{ steps.scan.outputs.exit-code }}'
-          findings='${{ steps.scan.outputs.findings }}'
 
           [[ "$outcome" == "failure" ]] || {
             echo "::error::the action passed on vulnerable fixtures (outcome=$outcome)"; exit 1; }
-          [[ "$code" == "1" ]] || {
-            echo "::error::expected exit 1 (findings), got $code"; exit 1; }
-          [[ "${findings:-0}" -gt 0 ]] || {
+          [[ "$WHEELTAP_EXIT_CODE" == "1" ]] || {
+            echo "::error::expected exit 1 (findings), got $WHEELTAP_EXIT_CODE"; exit 1; }
+          [[ "${WHEELTAP_FINDINGS:-0}" -gt 0 ]] || {
             echo "::error::the action failed the build but reported no findings"; exit 1; }
-          echo "$findings finding(s), exit $code — as intended"
+          echo "$WHEELTAP_FINDINGS finding(s), exit $WHEELTAP_EXIT_CODE — as intended"
 
       - name: SARIF was written and is not empty
         run: |
@@ -88,6 +90,9 @@ jobs:
           upload-sarif: false
           job-summary: false
 
+      # This job reads the step outputs deliberately: the action is expected to
+      # succeed here, so the outputs must be there. That keeps the documented
+      # output contract under test as well as the environment variables.
       - name: Nothing should have been found
         run: |
           set -euo pipefail
@@ -116,11 +121,15 @@ jobs:
           job-summary: false
           sarif-file: frozen.sarif
 
+      # The JSON the Action already wrote is the baseline, which also proves
+      # the two formats agree about identity — a baseline built from a
+      # different scan would not be testing the round trip.
       - name: Build a baseline from that scan
         run: |
           set -euo pipefail
-          cargo run --quiet --release -- scan fixtures/vulnerable --format json > baseline.json
+          cp "$RUNNER_TEMP/wheeltap.json" baseline.json
           jq -e '.findings | length > 0' baseline.json > /dev/null
+          echo "baseline holds $(jq '.findings | length' baseline.json) finding(s)"
 
       - name: The same scan against its own baseline is clean
         id: scan
@@ -134,8 +143,9 @@ jobs:
       - name: Nothing should be new
         run: |
           set -euo pipefail
-          [[ '${{ steps.scan.outputs.exit-code }}' == "0" ]] || {
-            echo "::error::a baseline of the scan did not suppress its own findings"; exit 1; }
+          [[ "$WHEELTAP_EXIT_CODE" == "0" && "$WHEELTAP_FINDINGS" == "0" ]] || {
+            echo "::error::a baseline of the scan did not suppress its own findings (exit $WHEELTAP_EXIT_CODE, $WHEELTAP_FINDINGS finding(s))"
+            exit 1; }
 
   # The end-to-end proof that Phase 4's SARIF is not merely schema-valid: it is
   # ingested by GitHub code scanning and becomes alerts. Runs only on main —

@@ -716,6 +716,14 @@ would.
   README, and the reason SARIF stays the primary channel.
 - The self-test workflow uploads for real on pushes to `main`, which is what
   closes Phase 4's exit criterion — schema validity is not evidence of ingestion.
+- A second composite-action limitation surfaced when the self-test first ran:
+  GitHub **discards a composite action's outputs when the action fails**, which
+  is exactly the run whose finding count someone wants to read. The Action
+  therefore publishes `exit-code` and `findings` twice — as step outputs, and as
+  `WHEELTAP_EXIT_CODE` and `WHEELTAP_FINDINGS` in the environment, which
+  survive. The self-test asserts through both: the failing job reads the
+  environment, the passing job reads the outputs, so neither contract can rot
+  unnoticed.
 
 ---
 
