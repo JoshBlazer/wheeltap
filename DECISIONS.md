@@ -661,6 +661,16 @@ about.
   understands workflow commands.
 - The renderer needs the scanned base path, so `render` takes it as an argument
   rather than reading it off the report.
+- **SARIF had the same bug, and the first real upload proved it.** Seventeen
+  alerts were ingested and displayed with `WT001_missing_signer/vault.rs` as
+  their location — a path that does not exist in the repository, so every alert
+  had no source behind it and could annotate nothing. GitHub accepts either
+  rooting silently. `artifactLocation.uri` is now rooted through the same
+  helper as the annotations, and two tests hold it there: one opens every SARIF
+  path from the repository root and compares the line to the finding's snippet,
+  the other asserts the two formats name identical paths, since a drift between
+  them would put the annotation and the alert in different places with only one
+  of them right.
 - Five severities compress into GitHub's three levels. The real severity
   survives in the annotation title, and as a number in SARIF's
   `security-severity`.

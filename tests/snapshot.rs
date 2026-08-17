@@ -65,9 +65,11 @@ fn vulnerable_corpus_sarif_report() {
         .map(|detector| detector.metadata())
         .collect();
 
-    let json: serde_json::Value =
-        serde_json::from_str(&wheeltap_report::sarif::render(&report, &rules).expect("render"))
-            .expect("valid JSON");
+    let json: serde_json::Value = serde_json::from_str(
+        &wheeltap_report::sarif::render(&report, &rules, Path::new("fixtures/vulnerable"))
+            .expect("render"),
+    )
+    .expect("valid JSON");
 
     insta::assert_json_snapshot!("vulnerable_sarif", json);
 }

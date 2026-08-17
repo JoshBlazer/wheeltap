@@ -49,7 +49,8 @@ fn sarif_output_validates_against_the_official_schema() {
         "need findings to be worth validating"
     );
 
-    let text = wheeltap_report::sarif::render(&report, &rules()).expect("render");
+    let text = wheeltap_report::sarif::render(&report, &rules(), Path::new("fixtures/vulnerable"))
+        .expect("render");
     let value: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
 
     let errors: Vec<String> = validator
@@ -70,7 +71,8 @@ fn sarif_is_valid_when_there_is_nothing_to_report() {
     let schema: serde_json::Value = serde_json::from_str(&schema_text).expect("schema is JSON");
     let validator = jsonschema::validator_for(&schema).expect("schema compiles");
 
-    let text = wheeltap_report::sarif::render(&Report::default(), &rules()).expect("render");
+    let text = wheeltap_report::sarif::render(&Report::default(), &rules(), Path::new("."))
+        .expect("render");
     let value: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
 
     assert!(
@@ -83,7 +85,8 @@ fn sarif_is_valid_when_there_is_nothing_to_report() {
 #[test]
 fn sarif_fingerprints_are_the_finding_identities() {
     let report = scan(&fixtures("vulnerable"));
-    let text = wheeltap_report::sarif::render(&report, &rules()).expect("render");
+    let text = wheeltap_report::sarif::render(&report, &rules(), Path::new("fixtures/vulnerable"))
+        .expect("render");
     let value: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
 
     let results = value["runs"][0]["results"].as_array().expect("results");
@@ -485,4 +488,84 @@ fn a_clean_scan_annotates_nothing() {
     let rendered =
         wheeltap_report::github::render(&scan(&fixtures("safe")), Path::new("fixtures/safe"));
     assert_eq!(rendered, "", "safe fixtures annotated: {rendered}");
+}
+
+/// SARIF's `artifactLocation.uri` has to resolve from the *repository* root,
+/// not the scanned root. GitHub ingests either one happily: the alerts appear
+/// in the Security tab, with no source behind them and no diff annotation.
+///
+/// This is the same mistake as a mis-rooted workflow command, in the other
+/// format. It was found by looking at seventeen real alerts after the first
+/// upload — which is exactly the kind of check that belongs in a test rather
+/// than in someone's eyes.
+#[test]
+fn every_sarif_result_points_at_a_file_that_exists() {
+    let base = Path::new("fixtures/vulnerable");
+    let report = scan(&fixtures("vulnerable"));
+    assert!(!report.findings.is_empty(), "need results to place");
+
+    let sarif: serde_json::Value = serde_json::from_str(
+        &wheeltap_report::sarif::render(&report, &rules(), base).expect("render"),
+    )
+    .expect("valid JSON");
+
+    let results = sarif["runs"][0]["results"].as_array().expect("results");
+    assert_eq!(results.len(), report.findings.len());
+
+    for (result, finding) in results.iter().zip(&report.findings) {
+        let location = &result["locations"][0]["physicalLocation"];
+        let uri = location["artifactLocation"]["uri"]
+            .as_str()
+            .expect("every result has a uri");
+
+        assert!(
+            !uri.starts_with('/') && !uri.contains(".."),
+            "`{uri}` is not repository-relative"
+        );
+
+        let path = root().join(uri);
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("result names {}: {err}", path.display()));
+
+        let line = location["region"]["startLine"].as_u64().expect("startLine") as usize;
+        assert_eq!(
+            source.lines().nth(line - 1).map(str::trim),
+            Some(finding.snippet.trim()),
+            "the alert on {uri}:{line} points at the wrong line"
+        );
+    }
+}
+
+/// The two GitHub-facing formats have to agree about where a finding is. If
+/// they drift, the annotation and the alert land in different places and only
+/// one of them is right.
+#[test]
+fn sarif_and_annotations_agree_on_every_path() {
+    let base = Path::new("fixtures/vulnerable");
+    let report = scan(&fixtures("vulnerable"));
+
+    let sarif: serde_json::Value = serde_json::from_str(
+        &wheeltap_report::sarif::render(&report, &rules(), base).expect("render"),
+    )
+    .expect("valid JSON");
+    let annotations = wheeltap_report::github::render(&report, base);
+
+    let from_sarif: Vec<&str> = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|r| {
+            r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+                .as_str()
+                .expect("uri")
+        })
+        .collect();
+
+    let from_annotations: Vec<String> = annotations
+        .lines()
+        .take(report.findings.len())
+        .map(|line| parse_command(line).1["file"].clone())
+        .collect();
+
+    assert_eq!(from_sarif, from_annotations);
 }

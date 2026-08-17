@@ -14,7 +14,11 @@
 //! beneath it and closes the originals — the same noise `--baseline` exists to
 //! prevent, in someone else's UI.
 
+use std::path::Path;
+
 use serde::Serialize;
+
+use crate::path::repo_relative;
 use wheeltap_core::engine::Report;
 use wheeltap_core::finding::{Finding, Severity};
 
@@ -169,8 +173,14 @@ pub struct Notification {
 /// `rules` is the metadata for every rule that *could* have fired, not only
 /// those that did: SARIF consumers use the driver's rule list to render help
 /// text, and a rule missing from it degrades the alert.
+///
+/// `base` is the scanned path relative to the repository root. GitHub resolves
+/// `artifactLocation.uri` from the repository root, and an alert whose uri does
+/// not resolve there is ingested and displayed with no source behind it — the
+/// upload succeeds and the alert is useless. Pass `Path::new(".")` when the
+/// scan ran at the repository root.
 #[must_use]
-pub fn build(report: &Report, rules: &[wheeltap_core::RuleMetadata]) -> Sarif {
+pub fn build(report: &Report, rules: &[wheeltap_core::RuleMetadata], base: &Path) -> Sarif {
     let descriptors: Vec<ReportingDescriptor> = rules.iter().map(describe).collect();
 
     let results = report
@@ -181,7 +191,7 @@ pub fn build(report: &Report, rules: &[wheeltap_core::RuleMetadata]) -> Sarif {
                 .iter()
                 .position(|rule| rule.id == finding.rule)
                 .unwrap_or(0);
-            result(finding, rule_index)
+            result(finding, rule_index, base)
         })
         .collect();
 
@@ -243,7 +253,7 @@ fn describe(rule: &wheeltap_core::RuleMetadata) -> ReportingDescriptor {
     }
 }
 
-fn result(finding: &Finding, rule_index: usize) -> SarifResult {
+fn result(finding: &Finding, rule_index: usize, base: &Path) -> SarifResult {
     SarifResult {
         rule_id: finding.rule.to_string(),
         rule_index,
@@ -254,7 +264,7 @@ fn result(finding: &Finding, rule_index: usize) -> SarifResult {
         locations: vec![Location {
             physical_location: PhysicalLocation {
                 artifact_location: ArtifactLocation {
-                    uri: finding.file.clone(),
+                    uri: repo_relative(base, &finding.file),
                 },
                 region: Region {
                     start_line: finding.line,
@@ -308,8 +318,9 @@ fn security_severity(severity: Severity) -> &'static str {
 pub fn render(
     report: &Report,
     rules: &[wheeltap_core::RuleMetadata],
+    base: &Path,
 ) -> Result<String, serde_json::Error> {
-    let mut text = serde_json::to_string_pretty(&build(report, rules))?;
+    let mut text = serde_json::to_string_pretty(&build(report, rules, base))?;
     text.push('\n');
     Ok(text)
 }
@@ -330,7 +341,7 @@ mod tests {
     #[test]
     fn the_report_carries_the_finding_identity_as_a_fingerprint() {
         let report = report_with(&[Severity::Critical]);
-        let sarif = build(&report, &sample_rules());
+        let sarif = build(&report, &sample_rules(), Path::new("."));
         let result = &sarif.runs[0].results[0];
 
         assert_eq!(
@@ -344,7 +355,7 @@ mod tests {
     fn results_index_into_the_rule_list() {
         let report = report_with(&[Severity::Critical]);
         let rules = sample_rules();
-        let sarif = build(&report, &rules);
+        let sarif = build(&report, &rules, Path::new("."));
 
         let result = &sarif.runs[0].results[0];
         assert_eq!(rules[result.rule_index].id, result.rule_id);
@@ -352,7 +363,7 @@ mod tests {
 
     #[test]
     fn every_rule_is_described_whether_or_not_it_fired() {
-        let sarif = build(&Report::default(), &sample_rules());
+        let sarif = build(&Report::default(), &sample_rules(), Path::new("."));
         assert_eq!(sarif.runs[0].tool.driver.rules.len(), sample_rules().len());
         assert!(sarif.runs[0].results.is_empty());
     }
@@ -367,7 +378,7 @@ mod tests {
                 "unparseable",
             ));
 
-        let sarif = build(&report, &sample_rules());
+        let sarif = build(&report, &sample_rules(), Path::new("."));
         let notifications = &sarif.runs[0].invocations[0].tool_execution_notifications;
         assert_eq!(notifications.len(), 1);
         assert!(notifications[0].message.text.contains("unparseable"));
@@ -377,8 +388,8 @@ mod tests {
     fn output_is_stable_across_runs() {
         let rules = sample_rules();
         assert_eq!(
-            render(&report_with(&[Severity::High]), &rules).expect("render"),
-            render(&report_with(&[Severity::High]), &rules).expect("render")
+            render(&report_with(&[Severity::High]), &rules, Path::new(".")).expect("render"),
+            render(&report_with(&[Severity::High]), &rules, Path::new(".")).expect("render")
         );
     }
 }

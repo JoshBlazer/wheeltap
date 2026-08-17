@@ -19,7 +19,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT001_missing_signer/vault.rs"
+                  "uri": "fixtures/vulnerable/WT001_missing_signer/vault.rs"
                 },
                 "region": {
                   "endLine": 37,
@@ -51,7 +51,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT002_missing_owner/oracle.rs"
+                  "uri": "fixtures/vulnerable/WT002_missing_owner/oracle.rs"
                 },
                 "region": {
                   "endLine": 44,
@@ -83,7 +83,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT007_arbitrary_cpi/router.rs"
+                  "uri": "fixtures/vulnerable/WT007_arbitrary_cpi/router.rs"
                 },
                 "region": {
                   "endLine": 55,
@@ -115,7 +115,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                  "uri": "fixtures/vulnerable/WT003_unchecked_arithmetic/staking.rs"
                 },
                 "region": {
                   "endLine": 23,
@@ -147,7 +147,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                  "uri": "fixtures/vulnerable/WT003_unchecked_arithmetic/staking.rs"
                 },
                 "region": {
                   "endLine": 24,
@@ -179,7 +179,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                  "uri": "fixtures/vulnerable/WT003_unchecked_arithmetic/staking.rs"
                 },
                 "region": {
                   "endLine": 27,
@@ -211,7 +211,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                  "uri": "fixtures/vulnerable/WT003_unchecked_arithmetic/staking.rs"
                 },
                 "region": {
                   "endLine": 36,
@@ -243,7 +243,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                  "uri": "fixtures/vulnerable/WT003_unchecked_arithmetic/staking.rs"
                 },
                 "region": {
                   "endLine": 38,
@@ -275,7 +275,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT003_unchecked_arithmetic/staking.rs"
+                  "uri": "fixtures/vulnerable/WT003_unchecked_arithmetic/staking.rs"
                 },
                 "region": {
                   "endLine": 41,
@@ -307,7 +307,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT004_reinitialisation/registry.rs"
+                  "uri": "fixtures/vulnerable/WT004_reinitialisation/registry.rs"
                 },
                 "region": {
                   "endLine": 37,
@@ -339,7 +339,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT005_missing_has_one/treasury.rs"
+                  "uri": "fixtures/vulnerable/WT005_missing_has_one/treasury.rs"
                 },
                 "region": {
                   "endLine": 33,
@@ -371,7 +371,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT006_non_canonical_bump/market.rs"
+                  "uri": "fixtures/vulnerable/WT006_non_canonical_bump/market.rs"
                 },
                 "region": {
                   "endLine": 38,
@@ -403,7 +403,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT009_sysvar_spoofing/clocked.rs"
+                  "uri": "fixtures/vulnerable/WT009_sysvar_spoofing/clocked.rs"
                 },
                 "region": {
                   "endLine": 43,
@@ -435,7 +435,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT010_unchecked_deserialisation/config_store.rs"
+                  "uri": "fixtures/vulnerable/WT010_unchecked_deserialisation/config_store.rs"
                 },
                 "region": {
                   "endLine": 21,
@@ -467,7 +467,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT008_unsafe_close/closer.rs"
+                  "uri": "fixtures/vulnerable/WT008_unsafe_close/closer.rs"
                 },
                 "region": {
                   "endLine": 23,
@@ -499,7 +499,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT011_duplicate_mutable/transfer.rs"
+                  "uri": "fixtures/vulnerable/WT011_duplicate_mutable/transfer.rs"
                 },
                 "region": {
                   "endLine": 34,
@@ -531,7 +531,7 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "WT012_alloc_in_loop/rebalance.rs"
+                  "uri": "fixtures/vulnerable/WT012_alloc_in_loop/rebalance.rs"
                 },
                 "region": {
                   "endLine": 23,

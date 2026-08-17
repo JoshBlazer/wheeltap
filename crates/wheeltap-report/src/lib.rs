@@ -4,6 +4,7 @@
 pub mod github;
 pub mod json;
 pub mod markdown;
+mod path;
 pub mod sarif;
 
 #[cfg(test)]

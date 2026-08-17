@@ -183,6 +183,7 @@ one Phase 2 decision reversed on new evidence.
 | SARIF is uploaded and ingested | `action.yml`, `upload` job, `main` only | closes the Phase 4 criterion |
 | A baseline suppresses pre-existing findings | `action.yml`, `baseline` job | end to end through the Action |
 | **Annotations land on the line they describe** | `tests/reporting.rs` | opens every annotated path from the repository root and compares the line to the finding's snippet |
+| **SARIF results land there too** | `tests/reporting.rs` | the same check on `artifactLocation.uri`, plus an assertion that the two formats name identical paths |
 | Escaping survives real findings | `tests/reporting.rs` | parses each command back and rejects any property we did not emit |
 
 ## What does not work yet

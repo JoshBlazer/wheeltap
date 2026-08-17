@@ -238,7 +238,7 @@ fn render(format: Format, report: &Report, base: &Path) -> Result<String, String
                 .iter()
                 .map(|detector| detector.metadata())
                 .collect();
-            wheeltap_report::sarif::render(report, &rules)
+            wheeltap_report::sarif::render(report, &rules, base)
                 .map_err(|err| format!("could not serialise SARIF: {err}"))
         }
     }

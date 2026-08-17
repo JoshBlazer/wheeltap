@@ -31,6 +31,7 @@
 
 use std::path::Path;
 
+use crate::path::repo_relative;
 use wheeltap_core::diag::{Diagnostic, Level};
 use wheeltap_core::engine::Report;
 use wheeltap_core::finding::{Finding, Severity};
@@ -64,7 +65,10 @@ fn annotation(finding: &Finding, base: &Path) -> String {
     let mut command = format!("::{} ", level(finding.severity));
 
     let mut properties = vec![
-        format!("file={}", escape_property(&join(base, &finding.file))),
+        format!(
+            "file={}",
+            escape_property(&repo_relative(base, &finding.file))
+        ),
         format!("line={}", finding.line),
         format!("col={}", finding.column),
         format!(
@@ -101,7 +105,7 @@ fn diagnostic_annotation(diagnostic: &Diagnostic, base: &Path) -> String {
         Level::Warning => "warning",
         Level::Error => "error",
     };
-    let path = join(base, &diagnostic.path.display().to_string());
+    let path = repo_relative(base, &diagnostic.path.display().to_string());
 
     let mut properties = vec![format!("file={}", escape_property(&path))];
     if let Some(line) = diagnostic.line {
@@ -129,22 +133,6 @@ fn level(severity: Severity) -> &'static str {
         Severity::Critical | Severity::High => "error",
         Severity::Medium | Severity::Low => "warning",
         Severity::Info => "notice",
-    }
-}
-
-/// Join the scanned base onto a finding's path, in GitHub's terms.
-///
-/// Always forward slashes: a scan on a Windows runner would otherwise emit
-/// backslashes, which GitHub will not match against a diff.
-fn join(base: &Path, relative: &str) -> String {
-    let base = base.to_string_lossy().replace('\\', "/");
-    let base = base.trim_end_matches('/');
-    let relative = relative.replace('\\', "/");
-
-    if base.is_empty() || base == "." {
-        relative
-    } else {
-        format!("{base}/{relative}")
     }
 }
 
@@ -227,13 +215,6 @@ mod tests {
                 "base {base:?} should not prefix anything: {output}"
             );
         }
-    }
-
-    #[test]
-    fn windows_separators_are_normalised() {
-        assert_eq!(join(Path::new(r"programs\vault"), r"src\lib.rs"), {
-            "programs/vault/src/lib.rs"
-        });
     }
 
     /// Rust is full of commas and colons. If they are not escaped the command
