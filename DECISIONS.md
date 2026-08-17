@@ -784,10 +784,22 @@ run on.
 
 - Pinning a tag gives a download. Pinning a branch gives a build, once, then a
   cache hit; the Action says which happened.
-- The cache key carries the target triple, the version, and the action ref, so a
-  moving ref still picks up a rebuild. `hashFiles` cannot be used for this: it
-  resolves paths only inside the workspace, and a remote action is checked out
-  well outside it.
+- The cache key carries the target triple, the version, and a **fingerprint of
+  the source that produced the binary**, computed in the Action itself. The
+  version alone is not enough: a branch keeps its version across every commit,
+  so a moving ref would serve the first binary it ever built, forever.
+  `hashFiles` cannot compute the fingerprint — it resolves paths only inside the
+  workspace, and a remote action is checked out well outside it.
+- **`github.action_ref` was the first attempt, and it is a trap.** Expressions
+  are evaluated in the context of the step that reads them, so
+  `${{ github.action_ref }}` inside the `with:` of an `actions/cache@v4` step
+  resolves to `v4` — a constant. This repository's own CI ran five commits
+  against a stale binary because of it, including one where the SARIF fix
+  described in ADR-014 had already landed and kept appearing not to work. The
+  lesson is not about the cache: a build system that silently serves a stale
+  artefact turns every subsequent measurement into a lie, and the only reason
+  it was caught was reading the uploaded SARIF back out of GitHub rather than
+  trusting that the job had gone green.
 - A source build needs Rust on the runner. The Action says so by name when it is
   missing, rather than failing on `cargo: command not found`.
 - Releases must ship an archive per platform with the bare binary at its root.

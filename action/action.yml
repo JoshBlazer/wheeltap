@@ -102,24 +102,48 @@ runs:
             exit 1 ;;
         esac
 
+        # What identifies a cached binary is the source that produced it. The
+        # version alone is not enough: a branch keeps its version across every
+        # commit, so a moving ref would serve the first binary it ever built
+        # forever. `github.action_ref` looks like the answer and is a trap —
+        # it is evaluated in the context of the *step* that reads it, so in the
+        # `with:` of an `actions/cache@v4` step it resolves to `v4`. That is
+        # not a hypothetical: it silently pinned this repository's own CI to a
+        # stale binary for five commits, and a fix that had already landed kept
+        # not taking effect.
+        hash_stdin() {
+          if command -v sha256sum >/dev/null; then sha256sum
+          elif command -v shasum >/dev/null; then shasum -a 256
+          else openssl dgst -sha256; fi
+        }
+        fingerprint=$(
+          cd "$root" || exit 1
+          find Cargo.toml Cargo.lock src crates -type f \
+               \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) 2>/dev/null |
+            sort |
+            while read -r file; do echo "$file"; cat "$file"; done |
+            hash_stdin |
+            cut -c1-16
+        )
+        # A fingerprint we could not compute must not collide with one we
+        # could, or every such run would share one cache entry.
+        [[ -n "$fingerprint" ]] || fingerprint="nosum-${GITHUB_SHA:-unknown}"
+
         {
           echo "version=$version"
           echo "target=$target"
           echo "exe=$exe"
           echo "root=$root"
+          echo "fingerprint=$fingerprint"
           echo "bin-dir=$HOME/.wheeltap/bin"
         } >> "$GITHUB_OUTPUT"
 
-    # The action's ref is in the key as well as the version, so pinning to a
-    # moving ref like @main still picks up a rebuild. `hashFiles` cannot help
-    # here: it only resolves paths inside the workspace, and a remote action is
-    # checked out well outside it.
     - name: Restore cached binary
       id: cache
       uses: actions/cache@v4
       with:
         path: ${{ steps.resolve.outputs.bin-dir }}
-        key: wheeltap-${{ steps.resolve.outputs.target }}-${{ steps.resolve.outputs.version }}-${{ github.action_ref || github.sha }}
+        key: wheeltap-${{ steps.resolve.outputs.target }}-${{ steps.resolve.outputs.version }}-${{ steps.resolve.outputs.fingerprint }}
 
     # Three ways to get a binary, cheapest first. The release asset is seconds;
     # building from source is minutes but always works, including on a ref that
