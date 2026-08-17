@@ -20,6 +20,7 @@ exclude = [
     "tests/",
     "schemas/",
     "action/",
+    "demo/",
     ".github/",
     "WHEELTAP_BUILD_SPEC.md",
 ]
@@ -50,7 +51,7 @@ members = ["crates/*"]
 # Fixtures and vendored corpus programs carry their own manifests and are inputs
 # to the analyser, not members of this build. Some of them do not compile by
 # design.
-exclude = ["fixtures"]
+exclude = ["fixtures", "demo"]
 
 [workspace.package]
 version = "0.1.0"

@@ -167,7 +167,14 @@ one Phase 2 decision reversed on new evidence.
   contributor cannot grant (ADR-015).
 - **Binary resolution in three fallbacks** — run cache, release archive, build
   from source — with the version read from the pinned checkout, so the ref you
-  pin is the version you get (ADR-016).
+  pin is the version you get (ADR-016). The cache is keyed on a fingerprint of
+  the source that produced the binary, computed by the Action; the obvious
+  `github.action_ref` is a trap that resolves to the ref of the *step reading
+  it* and silently pinned this repository's own CI to a stale binary for five
+  commits.
+- **`demo/`**: a small, correct Anchor vault and a workflow that scans it on any
+  pull request touching it. It reports nothing on `main`, which is the point —
+  a pull request that adds a plausible bug is what produces the annotation.
 - **`release.yml`**: five platform archives, each smoke-tested against the
   vulnerable fixtures before upload, plus a tag/manifest agreement check and
   crates.io publication in dependency order.

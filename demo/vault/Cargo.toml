@@ -1,0 +1,12 @@
+# Not part of the Wheeltap workspace — this is an input to the scanner, the way
+# a user's program would be.
+[package]
+name = "demo-vault"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anchor-lang = "0.30"
+
+[lib]
+crate-type = ["cdylib", "lib"]

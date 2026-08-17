@@ -1,0 +1,31 @@
+name: Demo
+
+# Scans demo/ with the Action, the way a user would scan their own programs.
+# The path filter keeps it out of the way of every other pull request.
+
+on:
+  pull_request:
+    paths:
+      - "demo/**"
+      - ".github/workflows/demo.yml"
+      - "action/**"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  wheeltap:
+    name: wheeltap
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Only needed until v1 is tagged: with no release archive to download,
+      # the Action builds from source.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: ./action
+        with:
+          path: demo
