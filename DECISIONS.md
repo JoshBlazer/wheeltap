@@ -724,11 +724,15 @@ would.
   This passed a local shell simulation, where `-e` is not the default, and was
   caught only by the self-test workflow running for real.
 - `exit-code` and `findings` are published twice, as step outputs and as
-  `WHEELTAP_EXIT_CODE` and `WHEELTAP_FINDINGS` in the environment. The
-  interesting run is the failing one, and step outputs are the more fragile
-  channel across a failure. The self-test asserts through both — the failing
-  job on the environment, the passing job on the outputs — so neither contract
-  can rot unnoticed.
+  `WHEELTAP_EXIT_CODE` and `WHEELTAP_FINDINGS` in the environment. This was
+  added on a wrong diagnosis — that a composite action's outputs are discarded
+  when it fails, which was the first explanation offered for the empty values
+  above. Measuring it rather than assuming it showed both channels survive a
+  failing action intact. The second channel stays because it is genuinely more
+  convenient from a later step, and because the self-test now asserts through
+  both: the failing job on the environment, the passing job on the outputs.
+  Neither contract can rot unnoticed, and the log records which is true rather
+  than which was assumed.
 
 ---
 

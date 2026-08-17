@@ -158,9 +158,9 @@ one Phase 2 decision reversed on new evidence.
   `sarif-file`. Defaults match the CLI exactly, so a CI result reproduces
   locally without translating flags.
 - **Results published twice**, as step outputs and as `WHEELTAP_EXIT_CODE` and
-  `WHEELTAP_FINDINGS` in the environment. The interesting run is the failing
-  one, and step outputs are the more fragile channel across a failure; the
-  self-test asserts through both so neither can rot unnoticed.
+  `WHEELTAP_FINDINGS` in the environment. Both are measured to survive a failing
+  run — the self-test asserts through both, the failing job on the environment
+  and the passing job on the outputs.
 - **Both annotation channels.** Annotations always; SARIF uploaded when it can
   succeed. `upload-sarif: auto` skips private repositories and fork pull
   requests and says why, rather than failing the build over a permission the

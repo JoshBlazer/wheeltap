@@ -56,13 +56,12 @@ the CLI exactly, so a run reproduces locally without translating flags.
 | `exit-code` | `WHEELTAP_EXIT_CODE` | `0` clean, `1` findings at or above `fail-on`, `2` error |
 | `sarif-file` | `WHEELTAP_SARIF_FILE` | Path to the SARIF report, uploaded or not |
 
-**After a failing run, prefer the environment variables.** The run you want to
-inspect is the one that failed, and step outputs are the more fragile channel
-across a failure. The same values are published both ways for that reason.
+Both channels survive a failing run — the self-test asserts it on every push —
+so read whichever is convenient. The environment variables save you giving the
+step an `id`, and are the easier of the two to use from a later step:
 
 ```yaml
 - uses: JoshBlazer/wheeltap@v1
-  id: wheeltap
   continue-on-error: true
   with:
     path: programs
@@ -70,6 +69,9 @@ across a failure. The same values are published both ways for that reason.
 - if: always()
   run: echo "$WHEELTAP_FINDINGS finding(s), exit $WHEELTAP_EXIT_CODE"
 ```
+
+Note the `if: always()`. Without it a later step does not run at all once the
+Action has failed the build, so there is nothing to read the values.
 
 ## Two channels, deliberately
 
