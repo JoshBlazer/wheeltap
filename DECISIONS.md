@@ -806,3 +806,127 @@ run on.
   `release.yml` builds five, and smoke-tests each one against the vulnerable
   fixtures before it is uploaded — a binary that builds but reports nothing
   would otherwise ship unnoticed.
+
+---
+
+## ADR-017 — Relationships are read as a graph, not one constraint at a time
+
+**Date:** 2026-08-24
+**Status:** Accepted
+
+### Context
+
+The Phase 6 audit comparison ran Wheeltap against drift and read its findings
+next to Neodyme's and Trail of Bits'. Two of Wheeltap's false-positive classes
+turned out to share a cause, and it was not the intraprocedural boundary that
+ADR-001 predicts.
+
+Drift ties a `user_stats` account to the `authority` that signs for it in two
+steps, with a helper predicate on each account:
+
+```rust
+#[account(mut, constraint = can_sign_for_user(&user, &authority)?)]
+pub user: AccountLoader<'info, User>,
+#[account(mut, constraint = is_stats_for_user(&user, &user_stats)?)]
+pub user_stats: AccountLoader<'info, UserStats>,
+```
+
+Neither constraint names both `user_stats` and `authority`. WT005 read one
+constraint at a time, found no single check relating the two, and reported ten
+account lists as unlinked.
+
+WT011 had the mirror image. Drift rejects self-liquidation by comparing the two
+`User` accounts and never the two `UserStats` accounts — it does not need to,
+since each is tied to the user it belongs to. WT011 looked for a comparison
+between the accounts it had flagged, and reported four more.
+
+### Decision
+
+Constraints build an undirected link graph over the accounts in one instruction,
+walked transitively. A constraint attached to a field links that field to every
+other account it names. WT005 asks whether two accounts are tied together;
+WT011 asks whether they are kept apart, using the graph to find the accounts
+each one stands for. The implementation is `crates/wheeltap-rules/src/links.rs`.
+
+### Rationale
+
+The evidence was not that the rules were noisy — that was already known and
+budgeted. It was **what** they were noisy about. The check WT005 could not see
+in `is_stats_for_user` is the one Trail of Bits asked drift to add in
+TOB-DRIFT-8, "Missing verification of maker and maker_stats accounts". The tool
+was reporting an audit's remediation as a missing check.
+
+A rule that reports the fix as the bug is not merely imprecise. It is giving
+the reader a reason to distrust the finding that would have been right.
+
+Only constraints that assert something *relational* create an edge. `payer =
+admin` and `close = destination` name another account without claiming any
+correspondence, and letting them bridge the graph would tie together accounts
+that merely paid for each other. Derivation counts, and counts strongly: an
+address that was not derived from a key cannot be produced, so
+`seeds = [b"target", pool.key().as_ref()]` is a firmer link than any comparison.
+
+Identifiers are matched as whole words. Every mention of `user_stats` contains
+`user`, and substring matching would link accounts that were never named — a
+rule going quiet with nothing to show for it.
+
+### Consequences
+
+- Findings on drift fell from 22 to 11: WT005 from 15 to 7, WT011 from 4 to 1.
+  Nothing changed on the fixture corpus — 17 on the vulnerable fixtures, 0 on
+  the safe ones, before and after.
+- The seven WT005 findings that remain are one class rather than two:
+  permissionless instructions where the signer is the caller, not the account's
+  owner. That is a question about intent and this rule will keep getting it
+  wrong.
+- **This is evidence, not proof.** A constraint asserting two accounts *differ*
+  links them here as surely as one asserting they match. Settling it would mean
+  following the helper into its body, which is exactly the boundary ADR-001
+  draws. The error is toward silence, which is the right direction for a rule
+  already reporting at medium confidence.
+- Both changes were written fixture-first, with the drift shapes reproduced in
+  `fixtures/safe/` and confirmed to be flagged before either rule was touched.
+- The graph is shared, so a future rule asking either question gets it for free.
+
+---
+
+## ADR-018 — Audit misses are verified against the vulnerable revision
+
+**Date:** 2026-08-24
+**Status:** Accepted
+
+### Context
+
+Drift's audits are from February 2023 and May 2024. The vendored commit is much
+newer, so most of what the auditors found is fixed in the code Wheeltap scans.
+
+Scanning fixed code and reporting "Wheeltap did not find TOB-DRIFT-8" is
+worthless in both directions: it neither shows the tool missed anything, nor
+shows it would have caught it.
+
+### Decision
+
+For every audit finding close enough to Wheeltap's scope to be worth testing,
+fetch the pre-fix revision the report names and scan that file directly. Record
+the commit and the result.
+
+### Rationale
+
+The alternative is to reason from the fixed code about what the tool would have
+done, which is exactly the kind of claim that turns out to be wrong. It costs a
+`curl` and a scan to replace an inference with a measurement.
+
+It also produced the sharpest sentence in the comparison. WT002 reports nothing
+about drift's unchecked oracle *and reported nothing before the fix either* —
+so its silence about that account carries no information at all. That is a much
+more useful thing to be able to say than "the rule did not fire".
+
+### Consequences
+
+- `docs/AUDIT.md` names a commit for each verified miss, so a reader can repeat
+  the check.
+- Two of them are kept as runnable fixtures in `fixtures/known_gaps/`, with the
+  existing gate asserting they stay missed until a rule improvement catches one.
+- The pre-fix files are fetched, not vendored. They are third-party source at
+  revisions with known vulnerabilities, and the repository has no reason to
+  carry them.
