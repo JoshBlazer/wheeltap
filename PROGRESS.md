@@ -1,8 +1,8 @@
 # Wheeltap — Progress
 
-**Current phase:** 5 built — next is 6, validation and release
-**Last updated:** 2026-08-17
-**Build status:** green — `fmt --check`, `clippy -D warnings`, and 187 tests pass
+**Current phase:** 6 — validation done; the release itself is what remains
+**Last updated:** 2026-08-24
+**Build status:** green — `fmt --check`, `clippy -D warnings`, and 201 tests pass
 on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 
 ## Phase status
@@ -15,7 +15,7 @@ on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 | 3 | Full detector suite | **done** | yes | All twelve rules implemented; corpus hand-triaged in `docs/BENCHMARKS.md` |
 | 4 | Reporting, suppression, baselines | **done** | yes | Markdown + SARIF (schema-validated), suppression, `--baseline`. The SARIF *upload* criterion is met by the `upload` job in `action.yml`, which ingests for real on every push to `main` |
 | 5 | GitHub Action and distribution | **built** | partly — see note | Action, `github` annotation format, release pipeline, and crates.io packaging all done and tested. Two tasks need a human: the demo pull request and its screenshot, and a crates.io token |
-| 6 | Validation, documentation, release | next | — | The audit comparison against drift's two published audits is the substantial piece |
+| 6 | Validation, documentation, release | **mostly done** | partly — see note | Audit comparison written (`docs/AUDIT.md`), benchmarks complete, README per §9. Outstanding: the demo pull request and its screenshot, the asciinema recording, and the v1.0.0 tag — the first needs a go-ahead and the last needs a crates.io token |
 
 ## Detector status
 
@@ -28,13 +28,13 @@ fixtures pass. Fixture counts are files, not assertions.
 | WT002 | Missing owner check | Critical | **yes** | 1 | 2 | Medium confidence; the owner assertion is looked for in the reading handler only |
 | WT003 | Unchecked arithmetic | High | **yes** | 1 | 2 | Medium confidence; respects `overflow-checks = true` |
 | WT004 | Account reinitialisation | High | **yes** | 1 | 1 | Medium confidence; excludes token accounts, which is the idiomatic `init_if_needed` |
-| WT005 | Missing `has_one` constraint | High | **yes** | 1 | 1 | Medium confidence; 15 corpus false positives on permissionless cranks — the weakest rule |
+| WT005 | Missing `has_one` constraint | High | **yes** | 1 | 2 | Medium confidence; follows relationships composed across constraints (ADR-017). 7 corpus false positives on permissionless cranks — still the weakest rule |
 | WT006 | Non-canonical PDA bump | High | **yes** | 1 | 1 | High confidence; distinguishes instruction data from the stored-bump idiom |
 | WT007 | Arbitrary CPI target | Critical | **yes** | 1 | 1 | High confidence; only the first CPI argument is the callee |
 | WT008 | Unsafe account close | Medium | **yes** | 1 | 1 | Medium confidence; fires on zeroing lamports, not on moving them |
 | WT009 | Sysvar spoofing | High | **yes** | 1 | 1 | High confidence; exact name match, so `rent_collector` is safe |
 | WT010 | Unchecked deserialisation | High | **yes** | 1 | 1 | High confidence; lexical match on the `_unchecked` APIs |
-| WT011 | Duplicate mutable accounts | Medium | **yes** | 1 | 1 | Medium confidence; reads handlers as well as constraints |
+| WT011 | Duplicate mutable accounts | Medium | **yes** | 1 | 2 | Medium confidence; reads handlers as well as constraints, and accepts a distinction made between the accounts these stand for (ADR-017) |
 | WT012 | Allocation in a loop | Low | **yes** | 1 | 1 | Medium confidence; receiver must look like a collection |
 
 ## What works right now
@@ -112,9 +112,10 @@ hand-triaged and all false positives, documented individually in
 - Every rule fires on its own vulnerable fixture; **no safe fixture is flagged by
   any rule**, enforced globally.
 
-**Measured on 76,381 lines of third-party code:** 35 findings, hand-triaged —
-15 true positives, 20 false positives, 43% precision. `escrow` reports zero.
-Every finding is listed with a verdict in `docs/BENCHMARKS.md`.
+**Measured on 76,381 lines of third-party code, as of Phase 3:** 35 findings,
+hand-triaged — 15 true positives, 20 false positives, 43% precision. `escrow`
+reports zero. Phase 6 took this to 24 findings at 63% precision; the current
+numbers are in `docs/BENCHMARKS.md`.
 
 All 20 false positives share one cause: the check exists, in a function
 Wheeltap does not follow (ADR-001). Nine false-positive classes were removed
@@ -193,14 +194,41 @@ one Phase 2 decision reversed on new evidence.
 | **SARIF results land there too** | `tests/reporting.rs` | the same check on `artifactLocation.uri`, plus an assertion that the two formats name identical paths |
 | Escaping survives real findings | `tests/reporting.rs` | parses each command back and rejects any property we did not emit |
 
+**Phase 6 — validation.**
+
+- **`docs/AUDIT.md`**: Wheeltap against drift's two published audits — Neodyme
+  and Trail of Bits, 30 findings. It reproduces **one**, weakly. Every one of
+  the thirty is accounted for in a table that adds up, grouped by the class of
+  analysis each miss would need.
+- **Misses verified, not inferred** (ADR-018). For each finding close enough to
+  test, the pre-fix revision the report names was fetched and scanned: drift's
+  `admin.rs` at `ac4bfd0` before the oracle fix reports zero, as do
+  `optional_accounts.rs` and `user.rs` at `8e4f157` before the maker_stats fix.
+  Both shapes are now in `fixtures/known_gaps/`.
+- **Two detector improvements the comparison paid for** (ADR-017). Wheeltap was
+  reporting drift's *fix* to TOB-DRIFT-8 as a missing check: the relationship
+  was built out of two constraints and WT005 read them one at a time. WT011 had
+  the mirror image. Constraints now build a link graph walked transitively.
+  drift 22 findings → **11**; corpus 35 → **24**, precision 43% → **63%**;
+  nothing changed on the fixtures.
+- **`docs/BENCHMARKS.md` complete**: full-scan timings including detectors, and
+  every corpus finding triaged with a verdict.
+- **README per build spec §9**, with the output above the fold, the validation
+  summary, and a limitations section.
+
 ## What does not work yet
 
 - **Nothing is published yet.** The release pipeline is written and the package
-  is clean, but no tag has been cut and crates.io needs a token (Phase 6).
+  is clean, but no tag has been cut and crates.io needs a token.
 - **No demo pull request or screenshot.** The Action's behaviour is asserted in
-  CI; the persuasive artefact still has to be produced against a real PR.
-- **The audit comparison is unwritten** (Phase 6). `docs/BENCHMARKS.md` has the
-  false-positive measurements but not the credibility exercise.
+  CI and the demo branch is committed locally; the persuasive artefact still
+  needs the pull request opened.
+- **No asciinema recording.**
+- **`remaining_accounts` is not modelled at all**, which is how the shape of
+  TOB-DRIFT-8 is missed entirely. Documented in `fixtures/known_gaps/`.
+- **No rule for an account declared in a context and never used**, which is
+  TOB-DRIFT-18 and is still live in the scanned commit. The strongest candidate
+  for the next version, and the exercise is what identified it.
 - Module paths are resolved within a file only; `mod x;` is not followed to
   `x.rs`. Identity combines the relative file path with the in-file item path,
   so this costs nothing downstream.
@@ -234,20 +262,26 @@ one Phase 2 decision reversed on new evidence.
 | 2026-08-17 | ADR-014: annotations are a reporter, not `jq` in the Action | Both failure modes are silent — an unescaped comma truncates the message, a wrongly-rooted path still prints but never reaches the diff. Shell in YAML cannot be tested; the reporter is | `jq` in the composite action (the usual approach, untestable) |
 | 2026-08-17 | ADR-015: emit annotations always, upload SARIF on `auto` | An unconditional upload fails the build over a permission a fork's contributor cannot grant, on a run where the analysis worked | Upload unconditionally (breaks fork PRs and private repos); annotations only (loses persistent alerts) |
 | 2026-08-17 | ADR-016: the Action's version is the ref you pinned | A `version` input is a second place to record one fact, and the mismatch it produces is invisible in the logs | Docker action (Linux only, second release pipeline); a `version` input; vendoring a binary |
+| 2026-08-24 | ADR-017: relationships read as a graph, not one constraint at a time | Wheeltap was reporting drift's *fix* to TOB-DRIFT-8 as a missing check. A rule that reports the remediation as the bug gives the reader a reason to distrust the finding that would have been right | Leave both classes documented as false positives (the numbers were already budgeted; the *content* of the noise was the problem) |
+| 2026-08-24 | ADR-018: audit misses verified against the vulnerable revision | Scanning fixed code proves nothing in either direction; a `curl` and a scan replace an inference with a measurement | Reason from the fixed code about what the tool would have done |
 
 ## Known false positives / negatives
 
 ### False positives
 
-Twenty on the real corpus, every one listed with a verdict in
-`docs/BENCHMARKS.md`. They fall into three groups, all with the same root cause
-— the validation exists in a function Wheeltap does not follow:
+Eight on the real corpus, every one listed with a verdict in
+`docs/BENCHMARKS.md`, plus one *unresolved*:
 
-- **WT005, 15** — permissionless cranks, where a signer named `authority` is the
-  caller rather than the account's owner. This is the weakest rule in the suite
-  and the honest place to start Phase 4's suppression work.
-- **WT011, 4** — liquidator/user pairs distinguished inside a helper.
+- **WT005, 7** — permissionless instructions, where a signer named `authority`
+  is the caller rather than the account's owner. Still the weakest rule, and
+  the remaining cause is not a boundary but a question syntax cannot answer.
 - **WT003, 1** — arithmetic bounded by a `validate_*` call one line above.
+- **WT011, 1, unresolved** — `FillOrder` aliases two `UserStats` accounts and
+  drift permits it deliberately, branching in `controller/orders.rs:1167`.
+  Filing it either way would claim something nobody has demonstrated.
+
+Twelve more were removed in Phase 6 by ADR-017 rather than documented: eight
+WT005 and four WT011 where the relationship was composed across constraints.
 
 **A Phase 2 decision was reversed here.** Phase 2 kept `lamports` in WT003's
 value-word list, documenting six false positives as an acceptable cost for
@@ -340,15 +374,23 @@ The screenshot itself has to be taken by a human.
 
 ## Next actions
 
-1. **Phase 6, the credibility exercise.** Run Wheeltap against `drift` and
-   compare with the Neodyme and Trail of Bits reports. Document what was caught,
-   what was missed and what class of analysis each miss would need, and what was
-   flagged that the auditors did not — **including the misses**, which is the
-   part that makes the rest believable.
-2. Complete `docs/BENCHMARKS.md`: scan time by program size, false-positive rate.
-3. README per build spec §9, with the PR annotation screenshot and an asciinema
-   recording of a scan.
-4. Tag `v1.0.0`. The release workflow builds five platform archives, verifies
-   the tag against the manifest, and publishes the crates once a token exists.
-5. Final `PROGRESS.md`: every phase done, with the false positives and negatives
-   listed rather than quietly dropped.
+Three things stand between here and v1.0.0, and two of them need a human.
+
+1. **The demo pull request.** Branch `demo/add-withdraw` is committed locally
+   and not pushed. It adds a withdraw instruction to `demo/vault` with an
+   `AccountInfo` authority and a bare `-=`; scanning it locally yields WT001
+   critical and WT003 high, both on lines the diff adds, so both annotate.
+   Opening it is outward-facing, so it is waiting on a go-ahead. **The
+   screenshot has to be taken by a human** and is the last thing the README
+   needs.
+2. **An asciinema recording** of a scan, per build spec §6 Phase 6 task 5.
+3. **Tag `v1.0.0`.** `release.yml` verifies the tag against the manifest, builds
+   five platform archives, smoke-tests each against the vulnerable fixtures, and
+   publishes the crates. Without `CARGO_REGISTRY_TOKEN` as a repository secret
+   the publish step warns and skips rather than failing, so a tag is safe to cut
+   either way — but crates.io needs the token.
+
+After the release, the strongest candidate for the next version is a rule for
+**an account declared in a context and never used by the handler**. It is
+TOB-DRIFT-18, it is purely syntactic, the model already holds both sides, and it
+is still live in the scanned commit. The audit comparison is what identified it.
