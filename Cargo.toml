@@ -34,7 +34,7 @@ name = "wheeltap"
 path = "src/main.rs"
 
 [dependencies]
-wheeltap-cli = { version = "0.1.0", path = "crates/wheeltap-cli" }
+wheeltap-cli = { version = "1.0.0", path = "crates/wheeltap-cli" }
 
 # Integration tests live in `tests/` and exercise the analysis directly.
 [dev-dependencies]
@@ -54,16 +54,16 @@ members = ["crates/*"]
 exclude = ["fixtures", "demo"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/JoshBlazer/wheeltap"
 
 [workspace.dependencies]
-wheeltap-core = { version = "0.1.0", path = "crates/wheeltap-core" }
-wheeltap-rules = { version = "0.1.0", path = "crates/wheeltap-rules" }
-wheeltap-report = { version = "0.1.0", path = "crates/wheeltap-report" }
+wheeltap-core = { version = "1.0.0", path = "crates/wheeltap-core" }
+wheeltap-rules = { version = "1.0.0", path = "crates/wheeltap-rules" }
+wheeltap-report = { version = "1.0.0", path = "crates/wheeltap-report" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

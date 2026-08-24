@@ -8,11 +8,6 @@ findings as JSON, Markdown, or SARIF.
 > train striking each wheel with a long hammer, listening for the dull note that
 > betrayed a crack invisible from the outside.
 
-> ⚠️ **Pre-release.** Everything described here is implemented and tested —
-> twelve detectors, four output formats, suppression, baselines, the GitHub
-> Action, and the audit comparison. What remains is cutting v1.0.0, so nothing
-> is on crates.io yet. `PROGRESS.md` is the live status.
-
 ## The problem
 
 Solana puts account validation entirely on the developer. The runtime will not
@@ -89,8 +84,8 @@ where the repository can accept them. The build fails on anything at or above
 path for a codebase that already has findings, and what `upload-sarif: auto`
 decides for you.
 
-Until `v1` is tagged there is no release archive to download, so pin `@main` and
-give the Action a toolchain to build with:
+Pinning a tag gets a prebuilt binary. Pinning a branch builds from source once
+and caches it, which needs a toolchain on the runner:
 
 ```yaml
 - uses: dtolnay/rust-toolchain@stable
@@ -99,18 +94,24 @@ give the Action a toolchain to build with:
 
 ## Quickstart
 
-_Not yet published — v1.0.0 has not been cut._ The intended shape:
-
 ```console
 $ cargo install wheeltap
 $ wheeltap scan ./programs
 ```
 
-Building from source works today:
+Or from source:
 
 ```console
 $ cargo build --release
 $ ./target/release/wheeltap scan fixtures/vulnerable
+```
+
+[`docs/demo.cast`](docs/demo.cast) is a fifteen-second recording of a real
+session — a correct program scanning clean, the same program with a withdraw
+instruction added, and 73,011 lines of production DeFi in half a second:
+
+```console
+$ asciinema play docs/demo.cast
 ```
 
 ```json

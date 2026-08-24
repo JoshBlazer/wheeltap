@@ -1,6 +1,6 @@
 # Wheeltap — Progress
 
-**Current phase:** 6 — validation done; the release itself is what remains
+**Current phase:** all six complete — v1.0.0
 **Last updated:** 2026-08-24
 **Build status:** green — `fmt --check`, `clippy -D warnings`, and 201 tests pass
 on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
@@ -14,8 +14,8 @@ on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 | 2 | Detector engine + WT001-WT003 | **done** | yes | `scan fixtures/vulnerable` catches all three; `scan fixtures/safe` reports nothing |
 | 3 | Full detector suite | **done** | yes | All twelve rules implemented; corpus hand-triaged in `docs/BENCHMARKS.md` |
 | 4 | Reporting, suppression, baselines | **done** | yes | Markdown + SARIF (schema-validated), suppression, `--baseline`. The SARIF *upload* criterion is met by the `upload` job in `action.yml`, which ingests for real on every push to `main` |
-| 5 | GitHub Action and distribution | **built** | partly — see note | Action, `github` annotation format, release pipeline, and crates.io packaging all done and tested. Two tasks need a human: the demo pull request and its screenshot, and a crates.io token |
-| 6 | Validation, documentation, release | **mostly done** | partly — see note | Audit comparison written (`docs/AUDIT.md`), benchmarks complete, README per §9. Outstanding: the demo pull request and its screenshot, the asciinema recording, and the v1.0.0 tag — the first needs a go-ahead and the last needs a crates.io token |
+| 5 | GitHub Action and distribution | **done** | yes | Action, `github` annotation format, release pipeline, crates.io packaging. Demonstrated on [PR #1](https://github.com/JoshBlazer/wheeltap/pull/1): two annotations, both on lines the diff adds |
+| 6 | Validation, documentation, release | **done** | yes | Audit comparison (`docs/AUDIT.md`), benchmarks, README per §9, `docs/demo.cast`, tagged v1.0.0 |
 
 ## Detector status
 
@@ -218,12 +218,11 @@ one Phase 2 decision reversed on new evidence.
 
 ## What does not work yet
 
-- **Nothing is published yet.** The release pipeline is written and the package
-  is clean, but no tag has been cut and crates.io needs a token.
-- **No demo pull request or screenshot.** The Action's behaviour is asserted in
-  CI and the demo branch is committed locally; the persuasive artefact still
-  needs the pull request opened.
-- **No asciinema recording.**
+- **Not on crates.io yet.** v1.0.0 is tagged and the release workflow publishes
+  in dependency order, but the publish step needs `CARGO_REGISTRY_TOKEN` as a
+  repository secret; without it the job warns and skips.
+- **No pull-request screenshot in the README.** [PR #1](https://github.com/JoshBlazer/wheeltap/pull/1)
+  is open and annotated; capturing the image needs a human at a browser.
 - **`remaining_accounts` is not modelled at all**, which is how the shape of
   TOB-DRIFT-8 is missed entirely. Documented in `fixtures/known_gaps/`.
 - **No rule for an account declared in a context and never used**, which is
@@ -374,23 +373,28 @@ The screenshot itself has to be taken by a human.
 
 ## Next actions
 
-Three things stand between here and v1.0.0, and two of them need a human.
+The build is complete. What is left is not development.
 
-1. **The demo pull request.** Branch `demo/add-withdraw` is committed locally
-   and not pushed. It adds a withdraw instruction to `demo/vault` with an
-   `AccountInfo` authority and a bare `-=`; scanning it locally yields WT001
-   critical and WT003 high, both on lines the diff adds, so both annotate.
-   Opening it is outward-facing, so it is waiting on a go-ahead. **The
-   screenshot has to be taken by a human** and is the last thing the README
-   needs.
-2. **An asciinema recording** of a scan, per build spec §6 Phase 6 task 5.
-3. **Tag `v1.0.0`.** `release.yml` verifies the tag against the manifest, builds
-   five platform archives, smoke-tests each against the vulnerable fixtures, and
-   publishes the crates. Without `CARGO_REGISTRY_TOKEN` as a repository secret
-   the publish step warns and skips rather than failing, so a tag is safe to cut
-   either way — but crates.io needs the token.
+1. **`CARGO_REGISTRY_TOKEN`** as a repository secret, then re-run the
+   `crates-io` job of the v1.0.0 release. Until then `cargo install wheeltap`
+   does not work; everything else does.
+2. **A screenshot of [PR #1](https://github.com/JoshBlazer/wheeltap/pull/1)**
+   for the README — the annotations are there, the image needs a browser.
 
-After the release, the strongest candidate for the next version is a rule for
-**an account declared in a context and never used by the handler**. It is
-TOB-DRIFT-18, it is purely syntactic, the model already holds both sides, and it
-is still live in the scanned commit. The audit comparison is what identified it.
+After that, the strongest candidate for v1.1 is a rule for **an account declared
+in a context and never used by the handler**. It is TOB-DRIFT-18, it is purely
+syntactic, the model already holds both sides, and it is still live in the
+commit this project scans. The audit comparison is what identified it.
+
+## Known limits, carried into v1.0.0
+
+Written here rather than discovered later:
+
+- Eight false positives and one unresolved finding on 76,381 lines, each listed
+  with a verdict in `docs/BENCHMARKS.md`.
+- Four documented false negatives in `fixtures/known_gaps/`, two of them real
+  audit findings, with a test asserting they stay missed until a rule catches
+  one.
+- The intraprocedural boundary (ADR-001), `remaining_accounts`, macro-generated
+  items, and type aliases — all listed in the README's limitations section and
+  in each rule's page of `docs/DETECTORS.md`.
