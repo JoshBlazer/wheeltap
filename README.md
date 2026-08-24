@@ -8,11 +8,10 @@ findings as JSON, Markdown, or SARIF.
 > train striking each wheel with a long hammer, listening for the dull note that
 > betrayed a crack invisible from the outside.
 
-> ⚠️ **Under construction — Phase 6 of 6.** All twelve detectors, four output
-> formats, suppression, baselines, and the GitHub Action are implemented and
-> tested. What remains is the audit comparison and the v1.0.0 release, so
-> nothing is on crates.io yet. `PROGRESS.md` is the live status. This notice
-> comes out at v1.0.0.
+> ⚠️ **Pre-release.** Everything described here is implemented and tested —
+> twelve detectors, four output formats, suppression, baselines, the GitHub
+> Action, and the audit comparison. What remains is cutting v1.0.0, so nothing
+> is on crates.io yet. `PROGRESS.md` is the live status.
 
 ## The problem
 
@@ -36,6 +35,32 @@ That program hands the vault to anyone who passes the right public key. They do
 not need the private key, because nothing ever asks for a signature. The fix is
 one type — `Signer<'info>` — and this class of bug has drained real protocols
 repeatedly.
+
+Here is what Wheeltap says about it:
+
+```console
+$ wheeltap scan ./programs
+```
+
+```
+WT001  critical  programs/vault/src/lib.rs:37  Withdraw.authority
+
+  `Withdraw.authority` is verified by a `has_one` constraint but is never
+  required to sign, and no account in `Withdraw` signs at all. The constraint
+  proves which account this is; it does not prove the holder authorised
+  anything. Public keys are public, so any caller can pass this one.
+
+      pub authority: AccountInfo<'info>,
+
+  Fix. Type the account as `Signer<'info>`. If it must stay an `AccountInfo`,
+  require the signature explicitly with `#[account(signer)]` or
+  `constraint = authority.is_signer`.
+
+  confidence high · id 2d70e5e62f325c65
+```
+
+Half a second, and it says which account, why the constraint that *is* there
+does not help, and what to write instead.
 
 These bugs share a useful property: they are **structurally visible in the
 source**. Most teams still find them only in a paid audit, late and expensively.
@@ -74,7 +99,7 @@ give the Action a toolchain to build with:
 
 ## Quickstart
 
-_Not yet published — the v1.0.0 release is Phase 6._ The intended shape:
+_Not yet published — v1.0.0 has not been cut._ The intended shape:
 
 ```console
 $ cargo install wheeltap
@@ -209,15 +234,82 @@ the vulnerability. They are never collapsed into one number.
 
 ### Measured noise
 
-On 76,381 lines of third-party Anchor code (Anchor's test suite and the drift
-perpetuals protocol), Wheeltap reports **35 findings: 15 true positives, 20 false
-positives**. A small, correct, idiomatic program reports **zero**. Every finding
-is triaged individually in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), including
-the false positives and why each survives.
+On 76,381 lines of third-party Anchor code — Anchor's own test suite and the
+drift perpetuals protocol — Wheeltap reports **24 findings: 15 true positives,
+1 unresolved, 8 false positives**. A small, correct, idiomatic program
+(`escrow`) reports **zero**. Every finding is triaged individually in
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), including the false positives and
+why each survives.
 
 Real vulnerabilities the detectors *miss* are kept as runnable fixtures in
 `fixtures/known_gaps/`, with a test asserting they stay missed until a rule
 improvement catches them.
+
+A full scan of drift — 73,011 lines, 116 files, all twelve rules — takes about
+half a second.
+
+## Validation against published audits
+
+Wheeltap was run against drift and its findings compared with the protocol's two
+published audits: Neodyme (May 2024) and Trail of Bits (February 2023), 30
+findings between them.
+
+**Wheeltap reproduces one of the thirty, and only in the weakest sense.** The
+full comparison is [`docs/AUDIT.md`](docs/AUDIT.md), including every miss.
+
+| Where the thirty went | |
+|---|---:|
+| Reproduced, weakly — an instance of TOB-DRIFT-11's class at a different site | 1 |
+| Need reasoning about what the protocol is *for* | 11 |
+| Need interprocedural dataflow | 1 |
+| Accounts outside `#[derive(Accounts)]` entirely | 1 |
+| Need whole-program consistency | 2 |
+| Engineering and language practice, not vulnerabilities | 10 |
+| Types and casts — no rule covers them | 3 |
+| A rule Wheeltap could have and does not | 1 |
+
+Misses were verified rather than inferred. For each finding close enough to
+Wheeltap's scope to test, the **pre-fix revision named in the report** was
+fetched and scanned. Drift's `admin.rs` before the oracle fix reports zero
+findings; so do the two files behind TOB-DRIFT-8. That yields the most useful
+sentence in the whole exercise: WT002 said nothing about drift's unchecked
+oracle *before* the fix and nothing after, so its silence about that account
+carries no information at all.
+
+The comparison also improved the tool. It showed Wheeltap reporting drift's
+**fix** to TOB-DRIFT-8 as a missing check — the relationship was built out of
+two constraints and the rule read them one at a time. Fixing that, and the same
+cause in WT011, took findings on drift from 22 to 11 with no change on the
+fixture corpus.
+
+## Limitations
+
+Stated once, plainly, because a security tool whose limits are undocumented
+cannot be trusted:
+
+- **Syntactic analysis only.** No formal verification, no symbolic execution, no
+  solver. Wheeltap reads the AST that `syn` produces.
+- **Intraprocedural.** A check in a called function is invisible (ADR-001). This
+  causes false positives — a bound established one line above in a helper — and
+  false negatives — a dereference that happens one call away. Rules that depend
+  on it report `confidence: medium`.
+- **No dataflow across CPI boundaries**, and no reasoning about what another
+  program does with an account.
+- **`remaining_accounts` is invisible.** Every account-validation rule starts
+  from `#[derive(Accounts)]`. Accounts pulled from the iterator by hand are not
+  modelled, which is how the shape of TOB-DRIFT-8 is missed entirely.
+- **Macro-generated items are invisible.** An Accounts struct produced by a
+  macro invocation is not modelled, and nothing warns about it.
+- **Type aliases are not resolved**, and module paths are followed within a file
+  only.
+- **Economic and protocol reasoning is out of reach**, and always will be. Eleven
+  of the thirty audit findings are of this kind.
+- **Anchor only.** Native Solana programs and CosmWasm are out of scope
+  (ADR-007).
+
+A clean scan means the rules found nothing. That is a much smaller claim than
+"there is nothing there", and every rule's page in
+[`docs/DETECTORS.md`](docs/DETECTORS.md) says what that rule cannot see.
 
 ## Deterministic finding identity
 
@@ -236,7 +328,10 @@ collapsing whitespace and stripping comments. A finding keeps its identity when
 code moves within a file, and loses it when the offending code itself changes.
 
 That is what makes `--baseline` trustworthy: adopt Wheeltap on a large codebase,
-freeze the existing findings, and fail the build only on new ones. Phase 2 and 4.
+freeze the existing findings, and fail the build only on new ones. The same
+identity travels in SARIF's `partialFingerprints`, so GitHub matches an alert
+across pushes instead of closing and reopening every alert beneath code that
+moved.
 
 ## Development
 
@@ -272,8 +367,9 @@ off. Both are failures.
 | `crates/wheeltap-report` | JSON, Markdown, SARIF, and annotation reporters |
 | `crates/wheeltap-cli` | Command-line interface |
 | `fixtures/` | Vulnerable, safe, and vendored real-program corpora |
-| `docs/` | Detector catalogue and benchmarks |
+| `docs/` | Detector catalogue, benchmarks, audit comparison |
 | `action/` | GitHub Action |
+| `demo/` | A small correct program the Action scans on every pull request |
 
 `PROGRESS.md` tracks status; `DECISIONS.md` records why the architecture is what
 it is.
