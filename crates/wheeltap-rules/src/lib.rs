@@ -5,6 +5,7 @@
 //! the specification; see `fixtures/README.md`.
 
 mod body;
+mod links;
 mod names;
 
 mod wt001_missing_signer;

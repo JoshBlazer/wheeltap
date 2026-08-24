@@ -196,123 +196,14 @@ fn same_type_siblings(
 /// Whether the two accounts are tied together by the constraints on this
 /// instruction, directly or through other accounts.
 ///
-/// Programs build a relationship out of parts. Drift ties a `user_stats` to the
-/// `authority` that signs for it in two steps, with a helper predicate on each
-/// account:
-///
-/// ```ignore
-/// #[account(mut, constraint = can_sign_for_user(&user, &authority)?)]
-/// pub user: AccountLoader<'info, User>,
-/// #[account(mut, constraint = is_stats_for_user(&user, &user_stats)?)]
-/// pub user_stats: AccountLoader<'info, UserStats>,
-/// ```
-///
-/// Neither constraint names both `user_stats` and `authority`. Reading them one
-/// at a time reports ten of drift's account lists as unlinked — and the check
-/// it cannot see is the one Trail of Bits asked drift to add (TOB-DRIFT-8,
-/// "Missing verification of maker and maker_stats accounts"). So the links are
-/// collected into a graph and followed transitively.
-///
-/// A constraint attached to a field links that field to every other account it
-/// names, which also covers derivation: `seeds = [b"t", pool.key().as_ref()]`
-/// on one account ties it to `pool`, and an address that was not derived from
-/// that key cannot be produced.
-///
-/// This is evidence, not proof. A constraint asserting two accounts *differ*
-/// links them here as surely as one asserting they match. Following the helper
-/// into its body would settle it, and that is the boundary ADR-001 draws.
+/// The graph and the reasoning behind it live in [`crate::links`]; WT011 asks
+/// the opposite question of the same structure.
 fn related_by_constraint(
     accounts: &wheeltap_core::model::AccountsStruct,
     field: &str,
     target: &str,
 ) -> bool {
-    let names: Vec<&str> = accounts
-        .fields
-        .iter()
-        .map(|other| other.name.as_str())
-        .collect();
-
-    let mut edges: Vec<(usize, usize)> = Vec::new();
-    for (index, other) in accounts.fields.iter().enumerate() {
-        let mut link_to = |text: &str| {
-            for (candidate, name) in names.iter().enumerate() {
-                if candidate != index && mentions_identifier(text, name) {
-                    edges.push((index, candidate));
-                }
-            }
-        };
-
-        // Only the constraints that assert something *relational* create a
-        // link. `payer = admin` and `close = destination` name another account
-        // without claiming any correspondence between the two, and letting
-        // them bridge the graph would silence the rule through accounts that
-        // merely paid for each other.
-        for constraint in other.constraints.iter() {
-            match &constraint.kind {
-                ConstraintKind::Custom { expr, .. } => link_to(expr),
-                ConstraintKind::Seeds { raw }
-                | ConstraintKind::Address { raw }
-                | ConstraintKind::Owner { raw } => link_to(raw),
-                ConstraintKind::HasOne { target, .. } => link_to(target),
-                ConstraintKind::Namespaced {
-                    value: Some(value), ..
-                } => link_to(value),
-                _ => {}
-            }
-        }
-    }
-
-    let Some(from) = names.iter().position(|name| *name == field) else {
-        return false;
-    };
-    let Some(to) = names.iter().position(|name| *name == target) else {
-        return false;
-    };
-
-    reaches(&edges, names.len(), from, to)
-}
-
-/// Whether `from` reaches `to` over the undirected link graph.
-fn reaches(edges: &[(usize, usize)], nodes: usize, from: usize, to: usize) -> bool {
-    let mut seen = vec![false; nodes];
-    let mut queue = vec![from];
-    seen[from] = true;
-
-    while let Some(node) = queue.pop() {
-        if node == to {
-            return true;
-        }
-        for &(a, b) in edges {
-            for (one, other) in [(a, b), (b, a)] {
-                if one == node && !seen[other] {
-                    seen[other] = true;
-                    queue.push(other);
-                }
-            }
-        }
-    }
-
-    false
-}
-
-/// Whether `text` names `identifier` as a whole word.
-///
-/// Substring matching cannot be used here: every mention of `user_stats` also
-/// contains `user`, so `is_stats_for_user(&user, &user_stats)` would link
-/// `user_stats` to an account called `user` whether or not one was named.
-fn mentions_identifier(text: &str, identifier: &str) -> bool {
-    if identifier.is_empty() {
-        return false;
-    }
-    text.match_indices(identifier).any(|(start, matched)| {
-        let before = text[..start].chars().next_back();
-        let after = text[start + matched.len()..].chars().next();
-        !is_ident_char(before) && !is_ident_char(after)
-    })
-}
-
-fn is_ident_char(ch: Option<char>) -> bool {
-    ch.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+    crate::links::Links::of(accounts).related(field, target)
 }
 
 /// The ways a stored key is reached in source.
@@ -358,46 +249,21 @@ fn enforces(field: &AccountField, target: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// Every mention of `user_stats` contains `user`. Substring matching would
-    /// link an account to one that was never named, which is how a whole rule
-    /// goes quiet without anyone noticing.
+    /// The rule's own excluded shapes, which the link graph knows nothing
+    /// about. An `init` account is being written, not checked.
     #[test]
-    fn an_identifier_is_matched_as_a_whole_word() {
-        let expr = "is_stats_for_user(&user, &user_stats)?";
-        assert!(mentions_identifier(expr, "user"));
-        assert!(mentions_identifier(expr, "user_stats"));
-        assert!(!mentions_identifier(expr, "stats"));
-        assert!(!mentions_identifier(expr, "authority"));
+    fn a_pubkey_type_is_recognised_however_it_is_spelled() {
+        assert!(is_pubkey("Pubkey"));
+        assert!(is_pubkey("anchor_lang::prelude::Pubkey"));
+        assert!(!is_pubkey("PubkeyList"));
+        assert!(!is_pubkey("u64"));
     }
 
     #[test]
-    fn an_identifier_inside_a_longer_one_does_not_count() {
-        assert!(!mentions_identifier(
-            "can_sign_for_user(&user, &authority)",
-            "use"
-        ));
-        assert!(!mentions_identifier("user_stats.load()?", "stats"));
-        assert!(mentions_identifier("&user_stats.load()?", "user_stats"));
-        assert!(!mentions_identifier("anything", ""));
-    }
-
-    #[test]
-    fn a_link_graph_is_walked_transitively() {
-        // 0—1 and 1—2, so 0 reaches 2 without a direct edge.
-        let edges = [(0, 1), (1, 2)];
-        assert!(reaches(&edges, 4, 0, 2));
-        assert!(reaches(&edges, 4, 2, 0), "links are undirected");
-        assert!(
-            !reaches(&edges, 4, 0, 3),
-            "an unlinked account stays unlinked"
-        );
-    }
-
-    /// A cycle must not spin forever, and an account always reaches itself.
-    #[test]
-    fn a_cycle_terminates() {
-        let edges = [(0, 1), (1, 2), (2, 0)];
-        assert!(reaches(&edges, 3, 0, 2));
-        assert!(reaches(&edges, 3, 1, 1));
+    fn stored_keys_are_reached_through_the_zero_copy_loader_too() {
+        let ways = accesses("user", "authority");
+        assert!(ways.contains(&"user.authority".to_string()));
+        assert!(ways.contains(&"user.load()?.authority".to_string()));
+        assert!(ways.contains(&"user.load_mut()?.authority".to_string()));
     }
 }

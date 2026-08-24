@@ -451,7 +451,8 @@ its exclusions reflect that:
   The composition is treated as evidence of a relationship, not proof of one:
   a constraint asserting two accounts *differ* links them under this rule as
   surely as one asserting they match. That is the price of not following the
-  helper into its body (ADR-001), and it errs toward silence.
+  helper into its body (ADR-001), and it errs toward silence. WT011 asks the
+  opposite question of the same graph.
 
 **Known false positive: permissionless cranks.** Where a signer named
 `authority` is the *caller* rather than the account's owner — drift's
@@ -791,6 +792,22 @@ pub from: Account<'info, Balance>,
   compares keys in the handler for all twelve of its transfer and liquidation
   instructions; checking constraints alone reported every one of them.
 - Two accounts with distinct `seeds` cannot collide and are skipped.
+- **The comparison need not name the flagged accounts.** Drift rejects
+  self-liquidation by comparing the two `User` accounts and never the two
+  `UserStats` accounts — it does not need to, because each is tied by a
+  constraint to the user it belongs to, so distinct users imply distinct
+  statistics. Each account is expanded into everything it stands for and the
+  assertion looked for across those. Reading only the flagged pair reported
+  four of drift's liquidation instructions.
+
+**Known false positive: aliasing the program deliberately supports.** Drift's
+`FillOrder` takes a `filler` and a `user` and permits them to be the same
+account — a trader filling their own order — branching on it in
+`controller/orders.rs` rather than rejecting it. Wheeltap sees two mutable
+`UserStats` accounts with nothing keeping them apart, which is true; whether
+the double deserialisation is then handled correctly is a question about the
+controller, several calls away. This is the one WT011 finding left on drift and
+it is the honest kind: the question is fair, and the answer is out of reach.
 
 #### Suppressing
 

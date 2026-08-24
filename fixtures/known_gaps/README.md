@@ -25,6 +25,46 @@ closed.
 
 ## The gaps
 
+### `TOB_DRIFT_8_remaining_accounts/` — accounts that never appear in a struct
+
+Two accounts pulled off `ctx.remaining_accounts` by hand, deserialised, and used
+together with nothing establishing that they belong to the same user. This is
+Trail of Bits' TOB-DRIFT-8 against drift, reduced to its shape.
+
+**Why it is missed.** Every account-validation detector starts from
+`#[derive(Accounts)]`. These accounts are never in one. `remaining_accounts` is
+Anchor's escape hatch from the declarative model, and everything the model reads
+goes with it.
+
+Verified against the real code, not inferred: scanning drift's pre-fix
+`optional_accounts.rs` and `user.rs` at
+`8e4f15771cce51f6c74628c19b74c5e83c51ed69` also reports nothing.
+
+**What would close it.** A separate analysis keyed on `next_account_info`:
+track each account taken from the iterator, note the type it is deserialised
+into, and ask whether anything relates them before use. A different rule from
+WT005, not a widening of it — the evidence is in statements, not attributes.
+
+### `ND_DFT1_IN_01_oracle_read_in_helper/` — a read one call away
+
+An `AccountInfo` oracle with no owner constraint, whose data is read inside a
+helper rather than in the handler. This is Neodyme's ND-DFT1-IN-01 against
+drift, reduced to its shape.
+
+**Why it is missed.** WT002 fires when an unvalidated account's data is
+deserialised *in the handler*. `get_price(&oracle)` puts the read one call away,
+so the body holds no deserialisation to find. The intraprocedural boundary
+(ADR-001) cuts both ways: the same limit that stops WT002 calling drift's
+zero-copy loaders critical stops it seeing this.
+
+Verified the same way: drift's `admin.rs` at
+`ac4bfd00e92105adba9809bcf1dfc50b3eb278ae`, the revision Neodyme cite and before
+the fix, reports nothing.
+
+**What would close it.** A summary of which functions dereference an
+`AccountInfo`'s data, propagated to callers — the first genuinely
+interprocedural analysis the tool would have.
+
 ### `WT001_unreferenced_admin/` — an unsigned admin with no recorded relationship
 
 ```rust

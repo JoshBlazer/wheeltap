@@ -65,8 +65,9 @@ impl Detector for DuplicateMutable {
                 if group.len() < 2 {
                     continue;
                 }
+                let links = crate::links::Links::of(accounts);
                 if distinguished(accounts, &group)
-                    || distinguished_in_handler(ctx, &accounts.name, &group)
+                    || distinguished_in_handler(ctx, &accounts.name, &group, &links)
                 {
                     continue;
                 }
@@ -124,19 +125,43 @@ fn distinguished(accounts: &AccountsStruct, group: &[&wheeltap_core::model::Acco
 ///
 /// Checking constraints alone reported all twelve of drift's transfer and
 /// liquidation instructions, every one of which does exactly this.
+///
+/// The comparison is not always between the flagged accounts themselves. Drift
+/// rejects self-liquidation by comparing the two `User` accounts, never the two
+/// `UserStats` accounts — it does not need to, because each is tied by a
+/// constraint to the user it belongs to. If the users differ, so do their
+/// statistics. So each account is expanded into everything it stands for
+/// (see [`crate::links`]) and the assertion is looked for across those. Reading
+/// only the flagged pair reported four of drift's liquidation instructions.
 fn distinguished_in_handler(
     ctx: &ProgramContext,
     accounts: &str,
     group: &[&wheeltap_core::model::AccountField],
+    links: &crate::links::Links<'_>,
 ) -> bool {
+    let standing: Vec<Vec<&str>> = group
+        .iter()
+        .map(|field| {
+            let names = links.standing_for(&field.name);
+            if names.is_empty() {
+                vec![field.name.as_str()]
+            } else {
+                names
+            }
+        })
+        .collect();
+
     ctx.handlers_for(accounts).any(|handler| {
         let body = crate::body::text(handler);
-        // An inequality somewhere in a handler that touches both accounts. The
-        // comparison is usually against locals rather than the fields directly,
-        // so requiring the exact expression would miss it.
+        // An inequality somewhere in a handler that touches an account
+        // standing for each of the flagged ones. The comparison is usually
+        // against locals rather than the fields directly, so requiring the
+        // exact expression would miss it.
         body.contains("!=")
-            && group
-                .iter()
-                .all(|field| body.contains(&format!("accounts.{}", field.name)))
+            && standing.iter().all(|names| {
+                names
+                    .iter()
+                    .any(|name| body.contains(&format!("accounts.{name}")))
+            })
     })
 }
