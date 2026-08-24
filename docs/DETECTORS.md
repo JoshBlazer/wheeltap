@@ -430,11 +430,33 @@ its exclusions reflect that:
   relationship to it.
 - The assertion is recognised on either account, in constraints or in the
   handler, and through the zero-copy `account.load()?.field` form.
+- **Relationships compose.** A constraint on one account that names another
+  links the two, and the rule follows those links transitively. Programs build
+  a relationship out of parts:
+
+  ```rust
+  #[account(mut, constraint = can_sign_for_user(&user, &authority)?)]
+  pub user: AccountLoader<'info, User>,
+  #[account(mut, constraint = is_stats_for_user(&user, &user_stats)?)]
+  pub user_stats: AccountLoader<'info, UserStats>,
+  ```
+
+  Neither constraint names both `user_stats` and `authority`, but together they
+  tie them. Deriving one account's address from another links them the same
+  way, and more strongly: `seeds = [b"target", pool.key().as_ref()]` makes a
+  mismatched pair unconstructible. Reading only one constraint at a time called
+  ten of drift's account lists unlinked — and the check it could not see was
+  the one Trail of Bits had asked drift to add (TOB-DRIFT-8).
+
+  The composition is treated as evidence of a relationship, not proof of one:
+  a constraint asserting two accounts *differ* links them under this rule as
+  surely as one asserting they match. That is the price of not following the
+  helper into its body (ADR-001), and it errs toward silence.
 
 **Known false positive: permissionless cranks.** Where a signer named
 `authority` is the *caller* rather than the account's owner — drift's
 `UpdateUserFuelBonus` and similar — this rule reports a relationship that was
-never intended. Fifteen of these remain on drift and are listed in
+never intended. Seven of these remain on drift and are listed in
 `docs/BENCHMARKS.md`. Separating them from the real thing needs intent, not
 syntax.
 
