@@ -55,11 +55,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,     target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-24.04-arm,  target: aarch64-unknown-linux-gnu }
-          - { os: macos-13,          target: x86_64-apple-darwin }
-          - { os: macos-latest,      target: aarch64-apple-darwin }
-          - { os: windows-latest,    target: x86_64-pc-windows-msvc }
+          - { os: ubuntu-latest,     target: x86_64-unknown-linux-gnu,  native: true }
+          - { os: ubuntu-24.04-arm,  target: aarch64-unknown-linux-gnu, native: true }
+          # Cross-compiled from Apple Silicon. The Intel `macos-13` runner was
+          # retired, and a job asking for it queues for ever rather than
+          # failing — which is how it presents: four green builds and one that
+          # never starts. The macOS SDK carries both architectures, so the
+          # build is ordinary; only the smoke test cannot run.
+          - { os: macos-latest,      target: x86_64-apple-darwin,       native: false }
+          - { os: macos-latest,      target: aarch64-apple-darwin,      native: true }
+          - { os: windows-latest,    target: x86_64-pc-windows-msvc,    native: true }
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -95,7 +100,11 @@ jobs:
           tar -czf "$name" -C "target/$TARGET/release" "wheeltap$exe"
           echo "ARCHIVE=$name" >> "$GITHUB_ENV"
 
+      # Skipped for the cross-compiled target: an x86-64 binary will not run on
+      # an Apple Silicon runner, and Rosetta is not guaranteed to be installed.
+      # That archive ships build-verified only, which is worth knowing.
       - name: Smoke test the binary we are about to ship
+        if: matrix.native
         shell: bash
         run: |
           set -euo pipefail
