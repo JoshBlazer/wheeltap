@@ -178,3 +178,35 @@ jobs:
           path: fixtures/vulnerable
           upload-sarif: true
           job-summary: true
+
+  # The third-party path, and the only job that exercises the published
+  # release archive. Every other job here uses `./action`, which builds from
+  # the checkout — so until this ran, the download that real users get had
+  # never been tested. It is also the Phase 5 exit criterion stated literally:
+  # five lines of workflow, from a tag, with no toolchain on the runner.
+  published:
+    name: the published action, pinned to a tag
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Scan with the released binary
+        id: scan
+        uses: JoshBlazer/wheeltap@v1
+        continue-on-error: true
+        with:
+          path: fixtures/vulnerable
+          upload-sarif: false
+          job-summary: false
+
+      - name: It found the same findings the source build does
+        run: |
+          set -euo pipefail
+          [[ "$WHEELTAP_EXIT_CODE" == "1" ]] || {
+            echo "::error::expected exit 1 from the published action, got $WHEELTAP_EXIT_CODE"
+            exit 1; }
+          [[ "$WHEELTAP_FINDINGS" == "17" ]] || {
+            echo "::error::published action reported $WHEELTAP_FINDINGS findings, expected 17"
+            exit 1; }
+          echo "$WHEELTAP_FINDINGS findings from the release archive, exit $WHEELTAP_EXIT_CODE"
