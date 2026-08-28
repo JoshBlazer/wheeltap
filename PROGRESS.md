@@ -15,7 +15,7 @@ on stable 1.97.1, and the workspace builds on the 1.88 MSRV.
 | 3 | Full detector suite | **done** | yes | All twelve rules implemented; corpus hand-triaged in `docs/BENCHMARKS.md` |
 | 4 | Reporting, suppression, baselines | **done** | yes | Markdown + SARIF (schema-validated), suppression, `--baseline`. The SARIF *upload* criterion is met by the `upload` job in `action.yml`, which ingests for real on every push to `main` |
 | 5 | GitHub Action and distribution | **done** | yes | Action, `github` annotation format, release pipeline, crates.io packaging. Demonstrated on [PR #1](https://github.com/JoshBlazer/wheeltap/pull/1): two annotations, both on lines the diff adds |
-| 6 | Validation, documentation, release | **done** | yes | Audit comparison (`docs/AUDIT.md`), benchmarks, README per §9, `docs/demo.cast`, tagged v1.0.0 |
+| 6 | Validation, documentation, release | **done** | yes | Audit comparison (`docs/AUDIT.md`), benchmarks, README per §9, `docs/demo.cast`, [v1.0.0 released](https://github.com/JoshBlazer/wheeltap/releases/tag/v1.0.0) with five platform archives |
 
 ## Detector status
 
@@ -376,15 +376,39 @@ The screenshot itself has to be taken by a human.
 The build is complete. What is left is not development.
 
 1. **`CARGO_REGISTRY_TOKEN`** as a repository secret, then re-run the
-   `crates-io` job of the v1.0.0 release. Until then `cargo install wheeltap`
-   does not work; everything else does.
+   `crates.io` job of the v1.0.0 release. It warned and skipped, as designed,
+   so the release is complete apart from that. Until then `cargo install
+   wheeltap` does not work; the Action, the release archives, and building from
+   source all do.
 2. **A screenshot of [PR #1](https://github.com/JoshBlazer/wheeltap/pull/1)**
-   for the README — the annotations are there, the image needs a browser.
+   for the README — the annotations are there on the two added lines, and the
+   image needs a browser.
 
 After that, the strongest candidate for v1.1 is a rule for **an account declared
 in a context and never used by the handler**. It is TOB-DRIFT-18, it is purely
 syntactic, the model already holds both sides, and it is still live in the
 commit this project scans. The audit comparison is what identified it.
+
+## What the release itself found
+
+Three things that only appear when you actually ship, all fixed:
+
+- **`macos-13` has been retired**, and a job asking for it does not fail — it
+  queues for ever. The first v1.0.0 attempt presented as four green platform
+  builds and a fifth that never started. Both Darwin targets now cross-compile
+  from Apple Silicon, and the archive that cannot be smoke-tested says so.
+- **The moving major tag `v1` triggered the release workflow** and failed its
+  manifest check, because `v1` is not `v1.0.0` and never will be. The trigger
+  now matches full versions only.
+- **Every documented usage snippet was wrong.** They said
+  `uses: JoshBlazer/wheeltap@v1`, which cannot resolve — the Action lives in a
+  subdirectory. A workflow copied from the README failed at startup, before
+  anything else could catch it. Found by a new CI job that pins the *published*
+  tag rather than `./action`; every other test used the checkout, where the
+  path question does not arise.
+
+The last one is the useful lesson: five jobs tested the Action and none tested
+the thing a stranger would actually write.
 
 ## Known limits, carried into v1.0.0
 
