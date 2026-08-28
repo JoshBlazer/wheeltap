@@ -193,7 +193,7 @@ jobs:
 
       - name: Scan with the released binary
         id: scan
-        uses: JoshBlazer/wheeltap@v1
+        uses: JoshBlazer/wheeltap/action@v1
         continue-on-error: true
         with:
           path: fixtures/vulnerable

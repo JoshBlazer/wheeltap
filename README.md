@@ -73,7 +73,7 @@ approximates dataflow it says so, and its findings are marked
 
 ```yaml
 - uses: actions/checkout@v5
-- uses: JoshBlazer/wheeltap@v1
+- uses: JoshBlazer/wheeltap/action@v1
   with:
     path: programs
 ```
@@ -89,7 +89,7 @@ and caches it, which needs a toolchain on the runner:
 
 ```yaml
 - uses: dtolnay/rust-toolchain@stable
-- uses: JoshBlazer/wheeltap@main
+- uses: JoshBlazer/wheeltap/action@main
 ```
 
 ## Quickstart

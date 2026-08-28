@@ -3,10 +3,14 @@
 Static analysis for Anchor programs, as five lines of workflow.
 
 ```yaml
-- uses: JoshBlazer/wheeltap@v1
+- uses: JoshBlazer/wheeltap/action@v1
   with:
     path: programs
 ```
+
+Note the `/action` — the Action lives in a subdirectory of the repository, and
+GitHub resolves `owner/repo@ref` only against the repository root. Without it
+the job fails at startup with *Can't find 'action.yml'*.
 
 That scans `programs/`, annotates the pull request inline, uploads SARIF to code
 scanning where it can, and fails the build on anything at or above `fail-on`.
@@ -26,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: JoshBlazer/wheeltap@v1
+      - uses: JoshBlazer/wheeltap/action@v1
         with:
           path: programs
 ```
@@ -61,7 +65,7 @@ so read whichever is convenient. The environment variables save you giving the
 step an `id`, and are the easier of the two to use from a later step:
 
 ```yaml
-- uses: JoshBlazer/wheeltap@v1
+- uses: JoshBlazer/wheeltap/action@v1
   continue-on-error: true
   with:
     path: programs
@@ -104,7 +108,7 @@ cannot be allowed to fail, and a check that never fails is a check nobody
 reads. Freeze the current state instead and fail only on what is new:
 
 ```yaml
-- uses: JoshBlazer/wheeltap@v1
+- uses: JoshBlazer/wheeltap/action@v1
   with:
     path: programs
     baseline: .wheeltap-baseline.json
@@ -133,7 +137,7 @@ Building from source needs a Rust toolchain on the runner:
 
 ```yaml
 - uses: dtolnay/rust-toolchain@stable
-- uses: JoshBlazer/wheeltap@main
+- uses: JoshBlazer/wheeltap/action@main
 ```
 
 Runners: Linux and macOS on x86-64 and ARM64, and Windows on x86-64.
