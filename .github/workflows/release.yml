@@ -6,7 +6,10 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    # Full versions only. The moving major tag `v1` — which is what the Action
+    # documentation tells people to pin — would otherwise trigger a release and
+    # fail the manifest check, because `v1` is not `v1.0.0` and never will be.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
     inputs:
       dry-run:
