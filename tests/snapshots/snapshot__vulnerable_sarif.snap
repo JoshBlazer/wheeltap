@@ -531,6 +531,70 @@ expression: json
             {
               "physicalLocation": {
                 "artifactLocation": {
+                  "uri": "fixtures/vulnerable/WT013_unused_account/config.rs"
+                },
+                "region": {
+                  "endLine": 33,
+                  "snippet": {
+                    "text": "    pub admin: UncheckedAccount<'info>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 33
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`SetFee.admin` is an unchecked account that is never used: no handler reads it and no constraint mentions it. Its `CHECK` comment says \"only the protocol admin can call this\", but no code performs that check. Whatever this account was meant to establish, the instruction never asks it to."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "b07626097a2f69b8"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "SetFee.admin"
+          },
+          "ruleId": "WT013",
+          "ruleIndex": 12
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "fixtures/vulnerable/WT013_unused_account/initialize.rs"
+                },
+                "region": {
+                  "endLine": 42,
+                  "snippet": {
+                    "text": "    pub program_signer: AccountInfo<'info>,"
+                  },
+                  "startColumn": 9,
+                  "startLine": 42
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`Initialize.program_signer` is an unchecked account that is never used: no handler reads it and no constraint mentions it. Its `CHECK` comment says \"checked in `initialize`\", but no code performs that check. Whatever this account was meant to establish, the instruction never asks it to."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "81d128a1c5964877"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "Initialize.program_signer"
+          },
+          "ruleId": "WT013",
+          "ruleIndex": 12
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
                   "uri": "fixtures/vulnerable/WT012_alloc_in_loop/rebalance.rs"
                 },
                 "region": {
@@ -861,6 +925,31 @@ expression: json
               },
               "shortDescription": {
                 "text": "A collection is cloned or allocated on every iteration of a loop"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "An unchecked account is declared for an instruction but never read by its handler or constraints"
+              },
+              "help": {
+                "text": "Remove the account if the instruction does not need it. If it was meant to authorise or constrain the call, write that check: require it to sign, tie it to stored state with `has_one`, or compare its key in the handler."
+              },
+              "helpUri": "https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf",
+              "id": "WT013",
+              "name": "Unused account",
+              "properties": {
+                "security-severity": "5.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "An unchecked account is declared for an instruction but never read by its handler or constraints"
               }
             }
           ],

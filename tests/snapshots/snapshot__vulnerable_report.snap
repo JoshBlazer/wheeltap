@@ -278,6 +278,40 @@ expression: json
       "snippet": "    pub from: Account<'info, Balance>,"
     },
     {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT013_unused_account/config.rs",
+      "id": "b07626097a2f69b8",
+      "item_path": "SetFee.admin",
+      "line": 33,
+      "message": "`SetFee.admin` is an unchecked account that is never used: no handler reads it and no constraint mentions it. Its `CHECK` comment says \"only the protocol admin can call this\", but no code performs that check. Whatever this account was meant to establish, the instruction never asks it to.",
+      "references": [
+        "https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf",
+        "https://www.anchor-lang.com/docs/references/account-constraints"
+      ],
+      "remediation": "Remove the account if the instruction does not need it. If it was meant to authorise or constrain the call, write that check: require it to sign, tie it to stored state with `has_one`, or compare its key in the handler.",
+      "rule": "WT013",
+      "severity": "medium",
+      "snippet": "    pub admin: UncheckedAccount<'info>,"
+    },
+    {
+      "column": 9,
+      "confidence": "medium",
+      "file": "WT013_unused_account/initialize.rs",
+      "id": "81d128a1c5964877",
+      "item_path": "Initialize.program_signer",
+      "line": 42,
+      "message": "`Initialize.program_signer` is an unchecked account that is never used: no handler reads it and no constraint mentions it. Its `CHECK` comment says \"checked in `initialize`\", but no code performs that check. Whatever this account was meant to establish, the instruction never asks it to.",
+      "references": [
+        "https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf",
+        "https://www.anchor-lang.com/docs/references/account-constraints"
+      ],
+      "remediation": "Remove the account if the instruction does not need it. If it was meant to authorise or constrain the call, write that check: require it to sign, tie it to stored state with `has_one`, or compare its key in the handler.",
+      "rule": "WT013",
+      "severity": "medium",
+      "snippet": "    pub program_signer: AccountInfo<'info>,"
+    },
+    {
       "column": 28,
       "confidence": "medium",
       "file": "WT012_alloc_in_loop/rebalance.rs",
@@ -306,7 +340,7 @@ expression: json
         "severity": "high"
       },
       {
-        "count": 2,
+        "count": 4,
         "severity": "medium"
       },
       {
@@ -314,9 +348,9 @@ expression: json
         "severity": "low"
       }
     ],
-    "files_scanned": 12,
-    "findings": 17,
-    "lines_scanned": 670
+    "files_scanned": 14,
+    "findings": 19,
+    "lines_scanned": 771
   },
   "tool": {
     "name": "wheeltap",

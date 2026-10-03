@@ -4,13 +4,13 @@ expression: "wheeltap_report::markdown::render(&report)"
 ---
 # Wheeltap
 
-**17 findings** in 12 files, 670 lines.
+**19 findings** in 14 files, 771 lines.
 
 | Severity | Count |
 |---|---|
 | critical | 3 |
 | high | 11 |
-| medium | 2 |
+| medium | 4 |
 | low | 1 |
 
 ## Critical
@@ -242,6 +242,34 @@ expression: "wheeltap_report::markdown::render(&report)"
 <sub>medium · confidence medium · `Transfer.from` · id `ed7f4c41ecffac78`</sub>
 
 <sub>[reference](https://solana.com/developers/courses/program-security/duplicate-mutable-accounts) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
+
+### `WT013` WT013_unused_account/config.rs:33
+
+`SetFee.admin` is an unchecked account that is never used: no handler reads it and no constraint mentions it. Its `CHECK` comment says "only the protocol admin can call this", but no code performs that check. Whatever this account was meant to establish, the instruction never asks it to.
+
+```rust
+    pub admin: UncheckedAccount<'info>,
+```
+
+**Fix.** Remove the account if the instruction does not need it. If it was meant to authorise or constrain the call, write that check: require it to sign, tie it to stored state with `has_one`, or compare its key in the handler.
+
+<sub>medium · confidence medium · `SetFee.admin` · id `b07626097a2f69b8`</sub>
+
+<sub>[reference](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf) · [reference](https://www.anchor-lang.com/docs/references/account-constraints)</sub>
+
+### `WT013` WT013_unused_account/initialize.rs:42
+
+`Initialize.program_signer` is an unchecked account that is never used: no handler reads it and no constraint mentions it. Its `CHECK` comment says "checked in `initialize`", but no code performs that check. Whatever this account was meant to establish, the instruction never asks it to.
+
+```rust
+    pub program_signer: AccountInfo<'info>,
+```
+
+**Fix.** Remove the account if the instruction does not need it. If it was meant to authorise or constrain the call, write that check: require it to sign, tie it to stored state with `has_one`, or compare its key in the handler.
+
+<sub>medium · confidence medium · `Initialize.program_signer` · id `81d128a1c5964877`</sub>
+
+<sub>[reference](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf) · [reference](https://www.anchor-lang.com/docs/references/account-constraints)</sub>
 
 ## Low
 

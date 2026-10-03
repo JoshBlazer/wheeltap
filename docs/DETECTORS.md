@@ -48,8 +48,9 @@ collapses them into one number.
 | WT010 | Unchecked deserialisation | High | High | implemented |
 | WT011 | Duplicate mutable accounts | Medium | Medium | implemented |
 | WT012 | Allocation in a loop | Low | Medium | implemented |
+| WT013 | Unused account | Medium | Medium | implemented |
 
-All twelve are implemented, each with vulnerable fixtures it must catch and safe
+All thirteen are implemented, each with vulnerable fixtures it must catch and safe
 fixtures it must not flag. Measured noise on 76,381 lines of third-party code is
 in [`BENCHMARKS.md`](BENCHMARKS.md).
 
@@ -873,6 +874,114 @@ for index in 0..pool.weights.len() { ... }
 #### References
 
 - [Solana: compute budget](https://solana.com/docs/core/fees#compute-budget)
+
+---
+
+### WT013 — Unused account
+
+**Severity:** Medium · **Confidence:** Medium · **Since:** v1.1
+
+#### What it finds
+
+An `AccountInfo` or `UncheckedAccount` in an instruction's account list that
+nothing reads: no handler mentions it, no method on the Accounts struct does,
+and no other account's constraint names it.
+
+#### Why it matters
+
+An unchecked account carries no validation of its own, so the only reason to
+declare one is to check it by hand. When nothing reads it, that check does not
+exist — and the `/// CHECK:` comment Anchor demands usually says it does.
+
+```rust
+/// CHECK: only the protocol admin can call this
+pub admin: UncheckedAccount<'info>,
+```
+
+Anyone can call that instruction. The comment is a note, not a check.
+
+Trail of Bits reported this class against drift as TOB-DRIFT-18 (`Initialize`
+declares `drift_signer` and never uses it), at Informational. It is still live
+in the scanned commit, and Wheeltap now reports it.
+
+#### Vulnerable
+
+```rust
+pub fn set_fee_bps(ctx: Context<SetFee>, fee_bps: u16) -> Result<()> {
+    ctx.accounts.config.fee_bps = fee_bps;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct SetFee<'info> {
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+
+    /// CHECK: only the protocol admin can call this
+    pub admin: UncheckedAccount<'info>,
+}
+```
+
+#### Fixed
+
+If the account authorises the call, say so in its type and tie it to state:
+
+```rust
+#[account(mut, seeds = [b"config"], bump = config.bump, has_one = admin)]
+pub config: Account<'info, Config>,
+
+pub admin: Signer<'info>,
+```
+
+If the instruction does not need it, remove it.
+
+#### What counts as a use
+
+The account must be read *as an account*:
+
+- `ctx.accounts.admin`, in the handler or in any handler sharing the struct;
+- a field of a destructured (`let SetFee { admin, .. } = ctx.accounts`) or
+  aliased (`let accounts = &mut ctx.accounts`) account list;
+- `self.admin` in an `impl` on the Accounts struct;
+- a mention in another field's constraint — `payer = admin`, `has_one = admin`,
+  a seed, `token::authority = admin`.
+
+A local variable that shares the name is **not** a use. That is how drift's
+instance hides: `handle_initialize` derives a local called `drift_signer` and
+never touches the account.
+
+Accounts Anchor acts on itself — `init`, `zero`, `close`, `realloc` — are
+used by definition. So is an account whose own constraints relate it to
+another, which makes it the one doing the checking.
+
+#### Limits
+
+- **Unchecked accounts only.** An unused `Signer` or `Account<T>` is not
+  reported. On drift, 20 unused signers were permissionless cranks
+  (`keeper: Signer`) where any signer is the design, and 19 unused typed
+  accounts were mostly the global `state` passed by convention — 39 findings,
+  none a defect. A forgotten `Signer` authority looks identical to an intended
+  crank, which is the same question WT005 cannot answer.
+- **Silent when the accounts escape.** If any handler passes its context or
+  account list to something this analysis cannot follow — a helper function,
+  `to_account_infos()` — the whole struct is skipped. The use may be one call
+  away (ADR-001).
+- **Silent when the handler reads no accounts at all.** An instruction that
+  does all its work in constraints, like Anchor's own constraint tests, gives
+  the rule nothing to compare against.
+- A field read only inside a `macro_rules!` macro *defined elsewhere* is seen
+  only if its name appears in the invocation's tokens.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT013) -- required by the client's account layout
+```
+
+#### References
+
+- [Trail of Bits, Drift Protocol v2 review, TOB-DRIFT-18](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf)
+- [Anchor: account constraints](https://www.anchor-lang.com/docs/references/account-constraints)
 
 ---
 

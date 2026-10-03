@@ -1,8 +1,13 @@
-//! WT001 — an admin account that is never required to sign.
+//! WT013 — an admin account that nothing uses.
 //!
-//! The second common shape: an authority-by-name account left as
-//! `UncheckedAccount` with a `CHECK` comment asserting a validation that does
-//! not exist anywhere. The comment is not a check; it is a note.
+//! `admin` is declared, carries a `CHECK` comment claiming a validation, and is
+//! then never read: not by the handler, not by any constraint. Anyone can call
+//! `set_fee_bps`. The comment is not a check; it is a note.
+//!
+//! This was a documented known gap for WT001, which cannot flag it without
+//! matching on names (`fixtures/known_gaps/README.md` says why that was
+//! rejected). WT013 catches it from a different direction: whatever `admin`
+//! was meant to prove, nothing ever asks it to prove anything.
 
 use anchor_lang::prelude::*;
 
