@@ -74,7 +74,7 @@ impl Detector for UnrelatedRemainingAccounts {
                         continue;
                     }
                     for field in shared_authorities(ctx, function, first, second) {
-                        if related(ctx, function, &field) {
+                        if related(ctx, index, &function.name, &field) {
                             continue;
                         }
                         findings.push(ctx.finding(
@@ -132,15 +132,49 @@ fn shared_authorities(
 
 /// Whether the loading function, or any function calling it, compares the
 /// field on both sides of one expression.
-fn related(ctx: &ProgramContext, function: &Function, field: &str) -> bool {
-    let call = format!("{}(", function.name);
-    std::iter::once(function)
-        .chain(
-            ctx.functions
-                .iter()
-                .filter(|f| !std::ptr::eq(*f, function) && calls(&text(f), &call)),
-        )
-        .any(|f| compares(&text(f), field))
+///
+/// Only bodies that name the loader are rendered. Rendering every function in
+/// the scan to text cost drift a quarter of a second, more than the other
+/// thirteen rules together.
+fn related(ctx: &ProgramContext, loader: usize, name: &str, field: &str) -> bool {
+    let call = format!("{name}(");
+    ctx.functions.iter().enumerate().any(|(index, function)| {
+        if index != loader && !names(function, name) {
+            return false;
+        }
+        let body = text(function);
+        (index == loader || calls(&body, &call)) && compares(&body, field)
+    })
+}
+
+/// Whether a body contains the identifier anywhere, macros included. A cheap
+/// filter before the body is rendered.
+fn names(function: &Function, name: &str) -> bool {
+    use syn::visit::Visit;
+
+    struct Names<'a>(&'a str, bool);
+
+    impl<'ast> Visit<'ast> for Names<'_> {
+        fn visit_ident(&mut self, ident: &'ast proc_macro2::Ident) {
+            self.1 |= ident == self.0;
+        }
+
+        fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+            fn walk(stream: proc_macro2::TokenStream, name: &str) -> bool {
+                stream.into_iter().any(|token| match token {
+                    proc_macro2::TokenTree::Ident(ident) => ident == name,
+                    proc_macro2::TokenTree::Group(group) => walk(group.stream(), name),
+                    _ => false,
+                })
+            }
+            self.1 |= walk(mac.tokens.clone(), self.0);
+            syn::visit::visit_macro(self, mac);
+        }
+    }
+
+    let mut visitor = Names(name, false);
+    visitor.visit_block(&function.block);
+    visitor.1
 }
 
 fn text(function: &Function) -> String {

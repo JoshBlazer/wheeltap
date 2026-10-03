@@ -90,15 +90,34 @@ impl Function {
 }
 
 /// Whether a body names `remaining_accounts` anywhere, macros included.
+///
+/// A visitor rather than a token walk: this runs on every function in the
+/// scan, and rendering each body to tokens first cost more than every rule
+/// that reads the result.
 fn mentions_remaining(block: &syn::Block) -> bool {
-    fn walk(stream: proc_macro2::TokenStream) -> bool {
-        stream.into_iter().any(|token| match token {
-            proc_macro2::TokenTree::Ident(ident) => ident == "remaining_accounts",
-            proc_macro2::TokenTree::Group(group) => walk(group.stream()),
-            _ => false,
-        })
+    struct Mentions(bool);
+
+    impl<'ast> Visit<'ast> for Mentions {
+        fn visit_ident(&mut self, ident: &'ast proc_macro2::Ident) {
+            self.0 |= ident == "remaining_accounts";
+        }
+
+        fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+            fn walk(stream: proc_macro2::TokenStream) -> bool {
+                stream.into_iter().any(|token| match token {
+                    proc_macro2::TokenTree::Ident(ident) => ident == "remaining_accounts",
+                    proc_macro2::TokenTree::Group(group) => walk(group.stream()),
+                    _ => false,
+                })
+            }
+            self.0 |= walk(mac.tokens.clone());
+            syn::visit::visit_macro(self, mac);
+        }
     }
-    walk(quote::ToTokens::to_token_stream(block))
+
+    let mut mentions = Mentions(false);
+    mentions.visit_block(block);
+    mentions.0
 }
 
 /// Whether a parameter is an iterator or slice of `AccountInfo`: the shape a
