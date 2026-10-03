@@ -27,6 +27,17 @@ pub mod vault {
             .ok_or(VaultError::Overflow)?;
         Ok(())
     }
+
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+        let vault = &mut ctx.accounts.vault;
+        require!(vault.balance >= amount, VaultError::Insufficient);
+
+        vault.balance -= amount;
+
+        **vault.to_account_info().try_borrow_mut_lamports()? -= amount;
+        **ctx.accounts.destination.try_borrow_mut_lamports()? += amount;
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -54,6 +65,18 @@ pub struct Deposit<'info> {
     pub authority: Signer<'info>,
 }
 
+#[derive(Accounts)]
+pub struct Withdraw<'info> {
+    #[account(mut, has_one = authority)]
+    pub vault: Account<'info, Vault>,
+
+    /// The vault's authority.
+    pub authority: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub destination: AccountInfo<'info>,
+}
+
 #[account]
 pub struct Vault {
     pub authority: Pubkey,
@@ -69,4 +92,6 @@ impl Vault {
 pub enum VaultError {
     #[msg("the deposit would overflow the vault balance")]
     Overflow,
+    #[msg("the vault does not hold that much")]
+    Insufficient,
 }
