@@ -50,7 +50,12 @@ fn deeply_nested_generics() {
 
     let (boxed, owner_checked) = wheeltap_core::loader::with_analysis_stack(|| {
         let ctx = ProgramContext::scan(dir.path());
-        let field = &ctx.accounts_struct("A").expect("struct A").fields[0];
+        let field = &ctx
+            .accounts
+            .iter()
+            .find(|a| a.name == "A")
+            .expect("struct A")
+            .fields[0];
         (field.ty.boxed, field.ty.is_owner_checked())
     });
 
@@ -75,7 +80,7 @@ fn pathologically_nested_source_is_skipped_with_a_warning() {
     let ctx = ProgramContext::scan(dir.path());
 
     assert!(
-        ctx.accounts_struct("A").is_some(),
+        ctx.accounts.iter().find(|a| a.name == "A").is_some(),
         "the sane file is still analysed"
     );
     assert_eq!(ctx.diagnostics.len(), 1);
@@ -111,7 +116,7 @@ fn macro_heavy_code_does_not_derail_the_walk() {
     let ctx = ProgramContext::scan(dir.path());
     assert_eq!(ctx.programs.len(), 1);
     assert_eq!(ctx.entrypoints().count(), 1);
-    assert!(ctx.accounts_struct("Go").is_some());
+    assert!(ctx.accounts.iter().find(|a| a.name == "Go").is_some());
 }
 
 /// Code inside a macro *invocation* is opaque to `syn`. That is a real limit of
@@ -132,7 +137,7 @@ fn accounts_declared_inside_a_macro_body_are_not_modelled() {
 
     let ctx = ProgramContext::scan(dir.path());
     assert!(
-        ctx.accounts_struct("Hidden").is_none(),
+        ctx.accounts.iter().find(|a| a.name == "Hidden").is_none(),
         "a known limit: macro-generated items are invisible to a syntactic analyser"
     );
     assert!(ctx.diagnostics.is_empty(), "invisible, but not an error");
@@ -151,7 +156,11 @@ fn a_very_large_file_is_handled() {
     let dir = tree(&[("big.rs", source)]);
     let ctx = ProgramContext::scan(dir.path());
 
-    let big = ctx.accounts_struct("Big").expect("Big modelled");
+    let big = ctx
+        .accounts
+        .iter()
+        .find(|a| a.name == "Big")
+        .expect("Big modelled");
     assert_eq!(big.fields.len(), 5_000);
     assert!(big.fields.iter().all(|f| f.constraints.is_mut()));
 }
@@ -182,7 +191,7 @@ fn unreadable_and_unparseable_files_are_reported_not_fatal() {
 
     let ctx = ProgramContext::scan(dir.path());
     assert!(
-        ctx.accounts_struct("A").is_some(),
+        ctx.accounts.iter().find(|a| a.name == "A").is_some(),
         "good file still analysed"
     );
     assert_eq!(ctx.diagnostics.len(), 2, "{:?}", ctx.diagnostics);
@@ -205,6 +214,54 @@ fn accounts_struct_with_unnamed_fields() {
     )]);
 
     let ctx = ProgramContext::scan(dir.path());
-    let tuple = ctx.accounts_struct("Tuple").expect("modelled");
+    let tuple = ctx
+        .accounts
+        .iter()
+        .find(|a| a.name == "Tuple")
+        .expect("modelled");
     assert!(tuple.fields.is_empty());
+}
+
+/// Two programs in one workspace define the same names, which Anchor's own
+/// templates make the norm: every program has an `Initialize`. A name must
+/// resolve to the definition nearest the code using it, not to whichever the
+/// loader happened to read first. Before this was fixed, scanning the
+/// vulnerable corpus reported WT005 against one fixture using the fields of
+/// another fixture's `Config`.
+#[test]
+fn names_resolve_to_the_nearest_definition() {
+    let program = |admin_field: &str| {
+        format!(
+            "pub fn set(ctx: Context<Set>) -> Result<()> {{ Ok(()) }}
+             #[derive(Accounts)]
+             pub struct Set<'info> {{ #[account(mut)] pub config: Account<'info, Config> }}
+             #[account]
+             pub struct Config {{ {admin_field} pub fee: u16 }}"
+        )
+    };
+    let dir = tree(&[
+        ("a/src/lib.rs", program("pub admin: Pubkey,")),
+        ("b/src/instructions.rs", program("")),
+        (
+            "b/src/state.rs",
+            "#[account] pub struct Unrelated { pub x: u8 }".into(),
+        ),
+    ]);
+    let ctx = ProgramContext::scan(dir.path());
+
+    for handler in &ctx.handlers {
+        let accounts = ctx.handler_accounts(handler).expect("resolved");
+        assert_eq!(accounts.file, handler.file, "a handler's own struct");
+
+        let config = ctx.state("Config", handler.file).expect("Config resolved");
+        assert_eq!(
+            config.file, handler.file,
+            "the Config beside it, not the other"
+        );
+        assert_eq!(
+            ctx.handlers_for(accounts).count(),
+            1,
+            "each struct has one handler"
+        );
+    }
 }

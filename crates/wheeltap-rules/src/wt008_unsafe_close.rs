@@ -53,20 +53,16 @@ impl Detector for UnsafeClose {
 
             // Anchor's own `close` constraint does the whole job, so an account
             // list that uses it is not closing anything by hand.
-            let uses_close_constraint = handler
-                .accounts_struct
-                .as_deref()
-                .and_then(|name| ctx.accounts_struct(name))
-                .is_some_and(|accounts| {
-                    accounts.fields.iter().any(|field| {
-                        field.constraints.any(|kind| {
-                            matches!(
-                                kind,
-                                wheeltap_core::model::constraints::ConstraintKind::Close { .. }
-                            )
-                        })
+            let uses_close_constraint = ctx.handler_accounts(handler).is_some_and(|accounts| {
+                accounts.fields.iter().any(|field| {
+                    field.constraints.any(|kind| {
+                        matches!(
+                            kind,
+                            wheeltap_core::model::constraints::ConstraintKind::Close { .. }
+                        )
                     })
-                });
+                })
+            });
             if uses_close_constraint {
                 continue;
             }

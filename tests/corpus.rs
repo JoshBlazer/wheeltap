@@ -45,7 +45,9 @@ fn escrow_is_modelled_accurately() {
 fn escrow_field_types_and_constraints_are_read_correctly() {
     let ctx = scan("escrow");
     let take = ctx
-        .accounts_struct("TakeOffer")
+        .accounts
+        .iter()
+        .find(|a| a.name == "TakeOffer")
         .expect("TakeOffer modelled");
 
     let taker = take.field("taker").expect("taker field");

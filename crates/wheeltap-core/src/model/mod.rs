@@ -15,7 +15,7 @@
 pub mod constraints;
 pub mod ty;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::diag::Diagnostic;
 use crate::loader::Load;
@@ -128,6 +128,30 @@ pub struct ProgramModule {
     pub location: Location,
 }
 
+/// An `impl` block, kept for the methods it gives a type.
+///
+/// Real programs move instruction logic onto the Accounts struct itself —
+/// `impl<'info> Deposit<'info> { fn deposit(&mut self) }`, called as
+/// `ctx.accounts.deposit()` — so a question about how a handler uses its
+/// accounts has to be able to read these too.
+#[derive(Debug, Clone)]
+pub struct ImplBlock {
+    /// The last path segment of the implementing type, e.g. `Deposit`.
+    pub self_ty: String,
+    pub file: FileId,
+    pub item: syn::ItemImpl,
+}
+
+impl ImplBlock {
+    /// The methods this block defines.
+    pub fn methods(&self) -> impl Iterator<Item = &syn::ImplItemFn> {
+        self.item.items.iter().filter_map(|item| match item {
+            syn::ImplItem::Fn(method) => Some(method),
+            _ => None,
+        })
+    }
+}
+
 /// Everything a scan knows about the code under analysis.
 ///
 /// Not `Send`/`Sync`: it retains `syn` nodes, and `proc-macro2` uses `Rc`
@@ -141,6 +165,7 @@ pub struct ProgramContext {
     pub handlers: Vec<Handler>,
     pub accounts: Vec<AccountsStruct>,
     pub states: Vec<AccountState>,
+    pub impls: Vec<ImplBlock>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -162,6 +187,7 @@ impl ProgramContext {
             handlers: Vec::new(),
             accounts: Vec::new(),
             states: Vec::new(),
+            impls: Vec::new(),
             diagnostics,
         };
 
@@ -179,22 +205,75 @@ impl ProgramContext {
         Self::build(crate::loader::load(path))
     }
 
-    /// Look up an Accounts struct by name.
+    /// The Accounts struct a name refers to, seen from `from`.
+    ///
+    /// Names are resolved to the *nearest* definition: the same file, then
+    /// the one sharing the deepest directory, then anywhere. Two programs in a
+    /// workspace routinely both define `Initialize` and `Config`, and taking
+    /// the first match had a rule describing one program's struct with the
+    /// other's fields. Nearest-first is not rustc's module resolution
+    /// (ADR-001), but it agrees with it for every layout Anchor generates.
     #[must_use]
-    pub fn accounts_struct(&self, name: &str) -> Option<&AccountsStruct> {
-        self.accounts.iter().find(|a| a.name == name)
+    pub fn accounts_struct(&self, name: &str, from: FileId) -> Option<&AccountsStruct> {
+        self.nearest(self.accounts.iter().filter(|a| a.name == name), from, |a| {
+            a.file
+        })
     }
 
-    /// Look up an account data struct by name.
+    /// The account data struct a name refers to, seen from `from`. Resolved
+    /// nearest-first, as [`Self::accounts_struct`].
     #[must_use]
-    pub fn state(&self, name: &str) -> Option<&AccountState> {
-        self.states.iter().find(|s| s.name == name)
+    pub fn state(&self, name: &str, from: FileId) -> Option<&AccountState> {
+        self.nearest(self.states.iter().filter(|s| s.name == name), from, |s| {
+            s.file
+        })
     }
 
     /// The Accounts struct a handler operates on.
     #[must_use]
     pub fn handler_accounts(&self, handler: &Handler) -> Option<&AccountsStruct> {
-        self.accounts_struct(handler.accounts_struct.as_deref()?)
+        self.accounts_struct(handler.accounts_struct.as_deref()?, handler.file)
+    }
+
+    /// The candidate closest to `from`, the earliest on a tie so that the
+    /// answer does not depend on iteration details.
+    fn nearest<'a, T>(
+        &self,
+        candidates: impl Iterator<Item = &'a T>,
+        from: FileId,
+        file_of: impl Fn(&T) -> FileId,
+    ) -> Option<&'a T> {
+        let mut best: Option<(usize, &'a T)> = None;
+        for candidate in candidates {
+            let score = self.closeness(from, file_of(candidate));
+            if best.is_none_or(|(top, _)| score > top) {
+                best = Some((score, candidate));
+            }
+        }
+        best.map(|(_, candidate)| candidate)
+    }
+
+    /// How close two files are: the same file beats everything, and otherwise
+    /// the number of directories their relative paths share.
+    fn closeness(&self, a: FileId, b: FileId) -> usize {
+        if a == b {
+            return usize::MAX;
+        }
+        let dir = |id| {
+            self.sources
+                .get(id)
+                .relative
+                .parent()
+                .map(Path::to_path_buf)
+        };
+        match (dir(a), dir(b)) {
+            (Some(a), Some(b)) => a
+                .components()
+                .zip(b.components())
+                .take_while(|(x, y)| x == y)
+                .count(),
+            _ => 0,
+        }
     }
 
     /// Handlers declared inside a `#[program]` module — the instruction
@@ -203,11 +282,30 @@ impl ProgramContext {
         self.handlers.iter().filter(|h| h.is_entrypoint())
     }
 
-    /// Every handler declared for a given Accounts struct.
-    pub fn handlers_for<'a>(&'a self, accounts: &'a str) -> impl Iterator<Item = &'a Handler> {
-        self.handlers
-            .iter()
-            .filter(move |h| h.accounts_struct.as_deref() == Some(accounts))
+    /// Every handler whose `Context<T>` resolves to this Accounts struct.
+    pub fn handlers_for<'a>(
+        &'a self,
+        accounts: &'a AccountsStruct,
+    ) -> impl Iterator<Item = &'a Handler> {
+        self.handlers.iter().filter(move |h| {
+            h.accounts_struct.as_deref() == Some(accounts.name.as_str())
+                && self.is(self.accounts_struct(&accounts.name, h.file), accounts)
+        })
+    }
+
+    /// Every `impl` block whose type resolves to this Accounts struct.
+    pub fn impls_for<'a>(
+        &'a self,
+        accounts: &'a AccountsStruct,
+    ) -> impl Iterator<Item = &'a ImplBlock> {
+        self.impls.iter().filter(move |i| {
+            i.self_ty == accounts.name
+                && self.is(self.accounts_struct(&accounts.name, i.file), accounts)
+        })
+    }
+
+    fn is(&self, resolved: Option<&AccountsStruct>, accounts: &AccountsStruct) -> bool {
+        resolved.is_some_and(|r| std::ptr::eq(r, accounts))
     }
 
     /// Whether this looks like Anchor code at all. A scan of a tree with no
@@ -263,6 +361,15 @@ impl ProgramContext {
                         self.add_accounts_struct(item, file, path);
                     } else if has_attr(&item.attrs, "account") {
                         self.add_state(item, file, path);
+                    }
+                }
+                syn::Item::Impl(item) => {
+                    if let Some(self_ty) = type_name(&item.self_ty) {
+                        self.impls.push(ImplBlock {
+                            self_ty,
+                            file,
+                            item: item.clone(),
+                        });
                     }
                 }
                 _ => {}
@@ -458,6 +565,14 @@ fn derives(attrs: &[syn::Attribute], name: &str) -> bool {
         });
         found
     })
+}
+
+/// The last path segment of a type, ignoring its generic arguments.
+fn type_name(ty: &syn::Type) -> Option<String> {
+    let syn::Type::Path(path) = ty else {
+        return None;
+    };
+    Some(path.path.segments.last()?.ident.to_string())
 }
 
 fn join(path: &[String], name: &str) -> String {
