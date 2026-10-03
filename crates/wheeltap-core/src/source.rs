@@ -158,9 +158,19 @@ impl SourceMap {
     }
 
     /// The path a finding should report, in a form stable across machines.
+    ///
+    /// Always forward slashes. The path is part of a finding's identity, so a
+    /// backslash on Windows would give every finding a different id there than
+    /// on Linux, and a baseline frozen on one would report everything as new
+    /// on the other.
     #[must_use]
     pub fn display_path(&self, id: FileId) -> String {
-        self.get(id).relative.display().to_string()
+        self.get(id)
+            .relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/")
     }
 }
 
@@ -176,6 +186,17 @@ mod tests {
             text.to_string(),
         );
         (map, id)
+    }
+
+    #[test]
+    fn display_paths_use_forward_slashes_on_every_platform() {
+        let mut map = SourceMap::new();
+        let id = map.add(
+            PathBuf::from("/root/programs/vault/lib.rs"),
+            Path::new("/root"),
+            String::new(),
+        );
+        assert_eq!(map.display_path(id), "programs/vault/lib.rs");
     }
 
     #[test]
