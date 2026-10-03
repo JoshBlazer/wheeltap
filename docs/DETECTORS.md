@@ -49,8 +49,9 @@ collapses them into one number.
 | WT011 | Duplicate mutable accounts | Medium | Medium | implemented |
 | WT012 | Allocation in a loop | Low | Medium | implemented |
 | WT013 | Unused account | Medium | Medium | implemented |
+| WT014 | Unrelated remaining accounts | High | Medium | implemented |
 
-All thirteen are implemented, each with vulnerable fixtures it must catch and safe
+All fourteen are implemented, each with vulnerable fixtures it must catch and safe
 fixtures it must not flag. Measured noise on 76,381 lines of third-party code is
 in [`BENCHMARKS.md`](BENCHMARKS.md).
 
@@ -982,6 +983,90 @@ another, which makes it the one doing the checking.
 
 - [Trail of Bits, Drift Protocol v2 review, TOB-DRIFT-18](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf)
 - [Anchor: account constraints](https://www.anchor-lang.com/docs/references/account-constraints)
+
+---
+
+### WT014 — Unrelated remaining accounts
+
+**Severity:** High · **Confidence:** Medium · **Since:** v1.1
+
+#### What it finds
+
+Two accounts taken from `ctx.remaining_accounts` and deserialised into
+different program state types that both record an authority — a `User` and a
+`UserStats`, each with `authority: Pubkey` — where nothing compares that field
+across the two.
+
+#### Why it matters
+
+`remaining_accounts` is Anchor's escape hatch from `#[derive(Accounts)]`, and
+every constraint goes with it. Inside an Accounts struct the relationship
+would be a `has_one` or a seed. Here it exists only if the program writes it.
+
+Trail of Bits found exactly this in drift (TOB-DRIFT-8): the maker's `User`
+and `UserStats` were loaded from the remaining accounts for `place_and_take`
+with nothing tying them to the same trader. A caller could pass one trader's
+account and another's statistics, and the fill was credited across the pair.
+
+Wheeltap reports it on the revision the audit names
+(`8e4f15771cce51f6c74628c19b74c5e83c51ed69`), at the helper and with both
+callers in scope.
+
+#### Vulnerable
+
+```rust
+fn get_maker_and_maker_stats<'a>(
+    iter: &mut Peekable<Iter<'a, AccountInfo<'a>>>,
+) -> Result<(AccountLoader<'a, User>, AccountLoader<'a, UserStats>)> {
+    let maker: AccountLoader<User> = AccountLoader::try_from(next_account_info(iter)?)?;
+    let maker_stats: AccountLoader<UserStats> = AccountLoader::try_from(next_account_info(iter)?)?;
+    Ok((maker, maker_stats))
+}
+```
+
+#### Fixed
+
+```rust
+require_keys_eq!(maker.load()?.authority, maker_stats.load()?.authority);
+```
+
+in the helper, or in every caller before the pair is used.
+
+#### What counts as relating them
+
+A statement naming the shared field on both sides of `==`, `!=`, `.eq(..)`,
+or `require_keys_eq!`/`require_keys_neq!` — in the function that loads the
+accounts, or in any function that calls it. Drift's referrer handling loads
+the pair in a helper and checks in the caller, and is not reported.
+
+#### Limits
+
+- **Only authority-like fields** (`authority`, `owner`, `admin`, and the rest of
+  the list in `names.rs`) are read as a claim that two accounts belong
+  together. Two accounts sharing a `mint` or an `oracle` are not reported,
+  related or not.
+- **Only `try_from` on a typed wrapper** — `AccountLoader`, `Account`,
+  `InterfaceAccount` — is recognised as a read, with the type taken from a
+  turbofish or the binding's annotation. Raw `AccountInfo` reads from the
+  remaining accounts are not modelled.
+- **Reads inside a loop are not a pair.** A map loader walking every account
+  matches them by key at use, so pairing is not its question. A real pair
+  loaded in a loop would be missed.
+- **Callers one level up only.** A check two calls above the loader is not
+  seen, and a check in *any* caller silences the finding for all of them.
+- A comparison that names the field once, against a local holding the other
+  side, is not recognised.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT014) -- the pair is matched by key in the caller's map
+```
+
+#### References
+
+- [Trail of Bits, Drift Protocol v2 review, TOB-DRIFT-8](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf)
+- [Anchor: account types](https://www.anchor-lang.com/docs/references/account-types)
 
 ---
 

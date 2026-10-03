@@ -4,12 +4,12 @@ expression: "wheeltap_report::markdown::render(&report)"
 ---
 # Wheeltap
 
-**19 findings** in 14 files, 771 lines.
+**20 findings** in 15 files, 850 lines.
 
 | Severity | Count |
 |---|---|
 | critical | 3 |
-| high | 11 |
+| high | 12 |
 | medium | 4 |
 | low | 1 |
 
@@ -212,6 +212,20 @@ expression: "wheeltap_report::markdown::render(&report)"
 <sub>high · confidence high · `config_store::read_config` · id `1e42fc9635a63add`</sub>
 
 <sub>[reference](https://www.anchor-lang.com/docs/account-types) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
+
+### `WT014` WT014_unrelated_remaining_accounts/matching.rs:48
+
+`get_maker_and_maker_stats` takes `maker` (`User`) and `maker_stats` (`UserStats`) from the remaining accounts. Both record `authority`, and nothing compares them, in `get_maker_and_maker_stats` or in anything that calls it. A caller can pass one owner's `User` with another owner's `UserStats`.
+
+```rust
+    let maker_stats: AccountLoader<UserStats> = AccountLoader::try_from(maker_stats_info)?;
+```
+
+**Fix.** Compare the stored authorities before using the accounts together: `require_keys_eq!(a.load()?.authority, b.load()?.authority)`. Where the pair has a fixed relationship, deriving one account's address from the other with `Pubkey::find_program_address` and comparing keys is stronger still.
+
+<sub>high · confidence medium · `get_maker_and_maker_stats.maker_stats` · id `21d50268ab7ad002`</sub>
+
+<sub>[reference](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf) · [reference](https://www.anchor-lang.com/docs/references/account-types)</sub>
 
 ## Medium
 

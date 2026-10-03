@@ -462,6 +462,38 @@ expression: json
           "ruleIndex": 9
         },
         {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "fixtures/vulnerable/WT014_unrelated_remaining_accounts/matching.rs"
+                },
+                "region": {
+                  "endLine": 48,
+                  "snippet": {
+                    "text": "    let maker_stats: AccountLoader<UserStats> = AccountLoader::try_from(maker_stats_info)?;"
+                  },
+                  "startColumn": 5,
+                  "startLine": 48
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "`get_maker_and_maker_stats` takes `maker` (`User`) and `maker_stats` (`UserStats`) from the remaining accounts. Both record `authority`, and nothing compares them, in `get_maker_and_maker_stats` or in anything that calls it. A caller can pass one owner's `User` with another owner's `UserStats`."
+          },
+          "partialFingerprints": {
+            "wheeltapFindingId/v1": "21d50268ab7ad002"
+          },
+          "properties": {
+            "confidence": "medium",
+            "itemPath": "get_maker_and_maker_stats.maker_stats"
+          },
+          "ruleId": "WT014",
+          "ruleIndex": 13
+        },
+        {
           "level": "warning",
           "locations": [
             {
@@ -950,6 +982,31 @@ expression: json
               },
               "shortDescription": {
                 "text": "An unchecked account is declared for an instruction but never read by its handler or constraints"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Two remaining accounts that both record an authority are used together without checking that it matches"
+              },
+              "help": {
+                "text": "Compare the stored authorities before using the accounts together: `require_keys_eq!(a.load()?.authority, b.load()?.authority)`. Where the pair has a fixed relationship, deriving one account's address from the other with `Pubkey::find_program_address` and comparing keys is stronger still."
+              },
+              "helpUri": "https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf",
+              "id": "WT014",
+              "name": "Unrelated remaining accounts",
+              "properties": {
+                "security-severity": "7.0",
+                "tags": [
+                  "security",
+                  "solana",
+                  "anchor"
+                ]
+              },
+              "shortDescription": {
+                "text": "Two remaining accounts that both record an authority are used together without checking that it matches"
               }
             }
           ],

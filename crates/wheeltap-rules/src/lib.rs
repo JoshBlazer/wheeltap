@@ -21,6 +21,7 @@ mod wt010_unchecked_deserialisation;
 mod wt011_duplicate_mutable;
 mod wt012_alloc_in_loop;
 mod wt013_unused_account;
+mod wt014_unrelated_remaining_accounts;
 
 use wheeltap_core::Detector;
 
@@ -37,6 +38,7 @@ pub use wt010_unchecked_deserialisation::UncheckedDeserialisation;
 pub use wt011_duplicate_mutable::DuplicateMutable;
 pub use wt012_alloc_in_loop::AllocInLoop;
 pub use wt013_unused_account::UnusedAccount;
+pub use wt014_unrelated_remaining_accounts::UnrelatedRemainingAccounts;
 
 /// Rule identifiers the catalogue plans to cover, in build order.
 ///
@@ -44,7 +46,7 @@ pub use wt013_unused_account::UnusedAccount;
 /// about what runs, and `PROGRESS.md` tracks status.
 pub const PLANNED_RULES: &[&str] = &[
     "WT001", "WT002", "WT003", "WT004", "WT005", "WT006", "WT007", "WT008", "WT009", "WT010",
-    "WT011", "WT012", "WT013",
+    "WT011", "WT012", "WT013", "WT014",
 ];
 
 /// Every implemented detector.
@@ -64,6 +66,7 @@ pub fn all() -> Vec<Box<dyn Detector>> {
         Box::new(DuplicateMutable),
         Box::new(AllocInLoop),
         Box::new(UnusedAccount),
+        Box::new(UnrelatedRemainingAccounts),
     ]
 }
 

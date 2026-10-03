@@ -186,3 +186,30 @@ fn scanning_is_deterministic() {
         assert_eq!(first, second, "{name}: two scans disagreed");
     }
 }
+
+/// Accounts taken from `ctx.remaining_accounts` are modelled from statements,
+/// since no Accounts struct describes them. Drift loads 26 typed accounts this
+/// way; the counts are exact for the reason given at the top of this file.
+#[test]
+fn drift_remaining_accounts_are_modelled() {
+    let ctx = scan("drift");
+    let read = |function: &str, binding: &str| {
+        ctx.remaining
+            .iter()
+            .find(|r| ctx.functions[r.function].name == function && r.binding == binding)
+            .unwrap_or_else(|| panic!("{function}.{binding} not modelled"))
+    };
+
+    assert_eq!(ctx.remaining.len(), 26);
+
+    // The pair TOB-DRIFT-8 is about, with the type read from the annotation.
+    let maker = read("get_maker_and_maker_stats", "maker");
+    let stats = read("get_maker_and_maker_stats", "maker_stats");
+    assert_eq!((maker.wrapper.as_str(), maker.state.as_str()), ("AccountLoader", "User"));
+    assert_eq!(stats.state, "UserStats");
+    assert!(!maker.in_loop && !stats.in_loop);
+
+    // Map loaders take every account in a loop: a collection, not a pair.
+    assert!(read("load_user_maps", "user_account_loader").in_loop);
+    assert!(read("load_user_maps", "user_stats_account_loader").in_loop);
+}

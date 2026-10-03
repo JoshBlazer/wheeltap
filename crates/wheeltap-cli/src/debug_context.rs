@@ -111,6 +111,16 @@ fn render(summary: &ContextSummary) -> String {
         render_state(&mut out, state);
     }
 
+    if !summary.remaining_accounts.is_empty() {
+        out.push_str("\nremaining accounts\n");
+        for read in &summary.remaining_accounts {
+            out.push_str(&format!(
+                "  {}: {} in {} ({}:{})\n",
+                read.binding, read.ty, read.function, read.file, read.line
+            ));
+        }
+    }
+
     if !summary.diagnostics.is_empty() {
         out.push_str(&format!("\n{} diagnostic(s)\n", summary.diagnostics.len()));
         for diagnostic in &summary.diagnostics {

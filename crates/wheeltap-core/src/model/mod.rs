@@ -13,6 +13,7 @@
 //! unique regardless (ADR-001).
 
 pub mod constraints;
+pub mod remaining;
 pub mod ty;
 
 use std::path::{Path, PathBuf};
@@ -21,6 +22,7 @@ use crate::diag::Diagnostic;
 use crate::loader::Load;
 use crate::source::{FileId, Location, SourceMap};
 use constraints::Constraints;
+use remaining::{Function, RemainingRead};
 use ty::FieldType;
 
 /// One field of a `#[derive(Accounts)]` struct.
@@ -166,6 +168,11 @@ pub struct ProgramContext {
     pub accounts: Vec<AccountsStruct>,
     pub states: Vec<AccountState>,
     pub impls: Vec<ImplBlock>,
+    /// Every free function and method, handlers included. Rules that follow
+    /// remaining accounts need the helpers they are loaded in.
+    pub functions: Vec<Function>,
+    /// Typed accounts deserialised from `ctx.remaining_accounts`.
+    pub remaining: Vec<RemainingRead>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -188,6 +195,8 @@ impl ProgramContext {
             accounts: Vec::new(),
             states: Vec::new(),
             impls: Vec::new(),
+            functions: Vec::new(),
+            remaining: Vec::new(),
             diagnostics,
         };
 
@@ -195,6 +204,13 @@ impl ProgramContext {
             let mut path = Vec::new();
             ctx.walk(&file.ast.items, file.id, &mut path, None);
         }
+
+        ctx.remaining = ctx
+            .functions
+            .iter()
+            .enumerate()
+            .flat_map(|(index, function)| function.reads(index))
+            .collect();
 
         ctx
     }
@@ -355,6 +371,14 @@ impl ProgramContext {
                     if let Some(handler) = handler(func, file, &scope, program) {
                         self.handlers.push(handler);
                     }
+                    let name = func.sig.ident.to_string();
+                    self.functions.push(Function::new(
+                        name.clone(),
+                        join(path, &name),
+                        file,
+                        &func.sig,
+                        &func.block,
+                    ));
                 }
                 syn::Item::Struct(item) => {
                     if derives(&item.attrs, "Accounts") {
@@ -365,6 +389,19 @@ impl ProgramContext {
                 }
                 syn::Item::Impl(item) => {
                     if let Some(self_ty) = type_name(&item.self_ty) {
+                        for method in item.items.iter().filter_map(|i| match i {
+                            syn::ImplItem::Fn(method) => Some(method),
+                            _ => None,
+                        }) {
+                            let name = method.sig.ident.to_string();
+                            self.functions.push(Function::new(
+                                name.clone(),
+                                join(path, &format!("{self_ty}::{name}")),
+                                file,
+                                &method.sig,
+                                &method.block,
+                            ));
+                        }
                         self.impls.push(ImplBlock {
                             self_ty,
                             file,
