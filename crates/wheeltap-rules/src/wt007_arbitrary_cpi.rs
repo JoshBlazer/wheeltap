@@ -49,7 +49,7 @@ impl Detector for ArbitraryCpi {
                 continue;
             }
 
-            for handler in ctx.handlers_for(&accounts.name) {
+            for handler in ctx.handlers_for(accounts) {
                 let body = body::text(handler);
 
                 for field in &candidates {

@@ -84,6 +84,11 @@ where the repository can accept them. The build fails on anything at or above
 path for a codebase that already has findings, and what `upload-sarif: auto`
 decides for you.
 
+This is [PR #1](https://github.com/JoshBlazer/wheeltap/pull/1), which adds a
+withdraw instruction to the [demo vault](demo/) and forgets the signature:
+
+![WT001 reported inline on the pull request's diff, beside the code scanning alert for the same finding](docs/img/pr-annotation.png)
+
 Pinning a tag gets a prebuilt binary. Pinning a branch builds from source once
 and caches it, which needs a toolchain on the runner:
 
@@ -225,6 +230,8 @@ it "new", and the baseline would be noise within a day.
 | WT010 | Unchecked deserialisation | High | High |
 | WT011 | Duplicate mutable accounts | Medium | Medium |
 | WT012 | Allocation in a loop | Low | Medium |
+| WT013 | Unused unchecked account | Medium | Medium |
+| WT014 | Unrelated remaining accounts | High | Medium |
 
 Each rule's page in [`docs/DETECTORS.md`](docs/DETECTORS.md) gives a vulnerable
 example, the fix, and — the part worth reading — **what it cannot see**.
@@ -236,7 +243,7 @@ the vulnerability. They are never collapsed into one number.
 ### Measured noise
 
 On 76,381 lines of third-party Anchor code — Anchor's own test suite and the
-drift perpetuals protocol — Wheeltap reports **24 findings: 15 true positives,
+drift perpetuals protocol — Wheeltap reports **29 findings: 20 true positives,
 1 unresolved, 8 false positives**. A small, correct, idiomatic program
 (`escrow`) reports **zero**. Every finding is triaged individually in
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), including the false positives and
@@ -246,8 +253,9 @@ Real vulnerabilities the detectors *miss* are kept as runnable fixtures in
 `fixtures/known_gaps/`, with a test asserting they stay missed until a rule
 improvement catches them.
 
-A full scan of drift — 73,011 lines, 116 files, all twelve rules — takes about
-half a second.
+A full scan of drift — 73,011 lines, 116 files, all fourteen rules — takes
+well under a second; [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) has the
+measurements.
 
 ## Validation against published audits
 
@@ -255,24 +263,25 @@ Wheeltap was run against drift and its findings compared with the protocol's two
 published audits: Neodyme (May 2024) and Trail of Bits (February 2023), 30
 findings between them.
 
-**Wheeltap reproduces one of the thirty, and only in the weakest sense.** The
-full comparison is [`docs/AUDIT.md`](docs/AUDIT.md), including every miss.
+**Wheeltap reproduces three of the thirty: two properly, one weakly.** v1.0
+reproduced only the weak one; the two rules added in v1.1 exist because this
+comparison identified what they should find. The full comparison is
+[`docs/AUDIT.md`](docs/AUDIT.md), including every miss.
 
 | Where the thirty went | |
 |---|---:|
+| Reproduced — TOB-DRIFT-8 (WT014, on the pre-fix revision) and TOB-DRIFT-18 (WT013, still live) | 2 |
 | Reproduced, weakly — an instance of TOB-DRIFT-11's class at a different site | 1 |
 | Need reasoning about what the protocol is *for* | 11 |
 | Need interprocedural dataflow | 1 |
-| Accounts outside `#[derive(Accounts)]` entirely | 1 |
 | Need whole-program consistency | 2 |
 | Engineering and language practice, not vulnerabilities | 10 |
 | Types and casts — no rule covers them | 3 |
-| A rule Wheeltap could have and does not | 1 |
 
 Misses were verified rather than inferred. For each finding close enough to
 Wheeltap's scope to test, the **pre-fix revision named in the report** was
 fetched and scanned. Drift's `admin.rs` before the oracle fix reports zero
-findings; so do the two files behind TOB-DRIFT-8. That yields the most useful
+findings. That yields the most useful
 sentence in the whole exercise: WT002 said nothing about drift's unchecked
 oracle *before* the fix and nothing after, so its silence about that account
 carries no information at all.
@@ -296,13 +305,16 @@ cannot be trusted:
   on it report `confidence: medium`.
 - **No dataflow across CPI boundaries**, and no reasoning about what another
   program does with an account.
-- **`remaining_accounts` is invisible.** Every account-validation rule starts
-  from `#[derive(Accounts)]`. Accounts pulled from the iterator by hand are not
-  modelled, which is how the shape of TOB-DRIFT-8 is missed entirely.
+- **`remaining_accounts` is modelled narrowly.** Typed accounts deserialised
+  from it with `try_from` are recorded, with their state type (ADR-020). Raw
+  `AccountInfo` reads from it are not, and only WT014 asks about it.
 - **Macro-generated items are invisible.** An Accounts struct produced by a
-  macro invocation is not modelled, and nothing warns about it.
-- **Type aliases are not resolved**, and module paths are followed within a file
-  only.
+  macro invocation is not modelled. When the scan can see that a macro emits
+  Accounts structs or handlers, each invocation is reported as a warning.
+- **Module paths are not followed.** Names resolve to the nearest definition —
+  same file, then nearest directory (ADR-019) — and type aliases are seen
+  through the same way. A layout that defeats nearest-first would resolve
+  wrongly.
 - **Economic and protocol reasoning is out of reach**, and always will be. Eleven
   of the thirty audit findings are of this kind.
 - **Anchor only.** Native Solana programs and CosmWasm are out of scope

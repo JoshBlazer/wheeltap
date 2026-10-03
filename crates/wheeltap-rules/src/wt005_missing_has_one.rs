@@ -52,7 +52,11 @@ impl Detector for MissingHasOne {
 
                 // The account must be one of this program's state accounts, so
                 // that we can see what keys it stores.
-                let Some(state) = field.ty.inner().and_then(|inner| ctx.state(inner)) else {
+                let Some(state) = field
+                    .ty
+                    .inner()
+                    .and_then(|inner| ctx.state(inner, field.location.file))
+                else {
                     continue;
                 };
 
@@ -170,7 +174,7 @@ fn enforced_elsewhere(
         return true;
     }
 
-    ctx.handlers_for(&accounts.name)
+    ctx.handlers_for(accounts)
         .any(|handler| mentions(&crate::body::text(handler)))
 }
 
@@ -187,7 +191,7 @@ fn same_type_siblings(
             field
                 .ty
                 .inner()
-                .and_then(|inner| ctx.state(inner))
+                .and_then(|inner| ctx.state(inner, field.location.file))
                 .is_some_and(|s| s.name == state)
         })
         .count()

@@ -55,7 +55,7 @@ impl Detector for DuplicateMutable {
                 let Some(inner) = field.ty.inner() else {
                     continue;
                 };
-                if ctx.state(inner).is_none() {
+                if ctx.state(inner, field.location.file).is_none() {
                     continue;
                 }
                 by_type.entry(inner).or_default().push(field);
@@ -67,7 +67,7 @@ impl Detector for DuplicateMutable {
                 }
                 let links = crate::links::Links::of(accounts);
                 if distinguished(accounts, &group)
-                    || distinguished_in_handler(ctx, &accounts.name, &group, &links)
+                    || distinguished_in_handler(ctx, accounts, &group, &links)
                 {
                     continue;
                 }
@@ -135,7 +135,7 @@ fn distinguished(accounts: &AccountsStruct, group: &[&wheeltap_core::model::Acco
 /// only the flagged pair reported four of drift's liquidation instructions.
 fn distinguished_in_handler(
     ctx: &ProgramContext,
-    accounts: &str,
+    accounts: &AccountsStruct,
     group: &[&wheeltap_core::model::AccountField],
     links: &crate::links::Links<'_>,
 ) -> bool {

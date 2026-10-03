@@ -56,7 +56,7 @@ impl Detector for Reinitialisation {
                 // Every handler using this account list must check, since any of
                 // them could be the reinitialising one.
                 let guarded = ctx
-                    .handlers_for(&accounts.name)
+                    .handlers_for(accounts)
                     .all(|handler| guards_initialisation(&body::text(handler), &field.name));
                 if guarded {
                     continue;
@@ -100,7 +100,7 @@ fn is_program_state_init_if_needed(field: &AccountField, ctx: &ProgramContext) -
     field
         .ty
         .inner()
-        .is_some_and(|inner| ctx.state(inner).is_some())
+        .is_some_and(|inner| ctx.state(inner, field.location.file).is_some())
 }
 
 /// Whether a handler body asks if the account is already live before writing.

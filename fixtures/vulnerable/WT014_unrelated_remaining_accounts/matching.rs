@@ -1,27 +1,16 @@
-//! Known gap — accounts taken from `remaining_accounts` are not modelled.
+//! WT014 — remaining accounts used together with nothing relating them.
 //!
 //! This is TOB-DRIFT-8, "Missing verification of maker and maker_stats
 //! accounts", reduced to its shape. Two accounts are pulled off the end of the
 //! account list by hand, deserialised, and used together — and nothing checks
-//! that they belong to the same user.
+//! that they belong to the same user. A caller can pass one trader's `User`
+//! with another trader's `UserStats`, and the fill is credited across the pair.
 //!
-//! Wheeltap reports nothing here, and would have reported nothing on drift's
-//! real code: `fixtures/corpus/drift` is a fixed version, but scanning the
-//! pre-fix `optional_accounts.rs` and `user.rs` at
-//! `8e4f15771cce51f6c74628c19b74c5e83c51ed69` also yields zero findings. The
-//! silence is structural, not incidental.
-//!
-//! **Why it is missed.** Every detector that reasons about account validation
-//! starts from `#[derive(Accounts)]`. These accounts never appear in one. They
-//! arrive through `ctx.remaining_accounts`, which is Anchor's escape hatch from
-//! the declarative model, and with it goes every constraint the model is built
-//! to read.
-//!
-//! **What catching it would need.** A separate analysis keyed on
-//! `next_account_info` and `remaining_accounts`: track each account pulled from
-//! the iterator, note the type it is deserialised into, and ask whether
-//! anything relates them before use. That is a different rule from WT005, not a
-//! widening of it — the evidence lives in statements rather than in attributes.
+//! This was a documented known gap until v1.1: every account-validation rule
+//! started from `#[derive(Accounts)]`, and these accounts never appear in one.
+//! The model now records accounts deserialised from `remaining_accounts`, and
+//! WT014 asks whether two of them that both store an authority are ever
+//! compared on it.
 
 use anchor_lang::prelude::*;
 use std::iter::Peekable;

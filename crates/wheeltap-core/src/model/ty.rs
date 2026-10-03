@@ -104,29 +104,48 @@ impl FieldType {
 /// Classify a field's type.
 #[must_use]
 pub fn classify(ty: &syn::Type) -> FieldType {
+    classify_with(ty, |_| None)
+}
+
+/// Classify a field's type, seeing through type aliases.
+///
+/// `resolve` maps a name to the type it aliases, if the scan saw a `type`
+/// item by that name. Without it, `pub vault: VaultAccount<'info>` reads as a
+/// composed Accounts struct, and every rule that asks what validates the
+/// field gets the wrong answer.
+#[must_use]
+pub fn classify_with<'a>(
+    ty: &'a syn::Type,
+    resolve: impl Fn(&str) -> Option<&'a syn::Type>,
+) -> FieldType {
+    /// Bounds alias chains, so `type A = B; type B = A;` terminates.
+    const MAX_ALIAS_DEPTH: usize = 8;
+
     let text = render(ty);
     let mut boxed = false;
     let mut optional = false;
     let mut current = ty;
+    let mut depth = 0;
 
     // Peel the wrappers Anchor permits. `Box<Account<'info, T>>` is routine in
     // real programs -- large account structs blow the stack otherwise -- and
     // `Option<T>` marks an optional account. Neither changes what is validated,
-    // so neither may change how a detector sees the field.
+    // so neither may change how a detector sees the field. An alias may hide
+    // either, so aliases are expanded inside the same loop.
     loop {
-        match unwrap_generic(current, "Box") {
-            Some(inner) => {
-                boxed = true;
-                current = inner;
-                continue;
-            }
-            None => match unwrap_generic(current, "Option") {
-                Some(inner) => {
-                    optional = true;
-                    current = inner;
-                }
-                None => break,
-            },
+        if let Some(inner) = unwrap_generic(current, "Box") {
+            boxed = true;
+            current = inner;
+        } else if let Some(inner) = unwrap_generic(current, "Option") {
+            optional = true;
+            current = inner;
+        } else if let Some(target) = alias_target(current, &resolve)
+            && depth < MAX_ALIAS_DEPTH
+        {
+            depth += 1;
+            current = target;
+        } else {
+            break;
         }
     }
 
@@ -179,6 +198,40 @@ fn classify_bare(ty: &syn::Type) -> AnchorType {
         _ if first_type_argument(segment).is_none() => AnchorType::Composite { name },
         _ => AnchorType::Other,
     }
+}
+
+/// The aliased type, if `ty` names an alias rather than an Anchor wrapper.
+///
+/// Anchor's own names are never looked up, so a program that happens to
+/// declare `type Account = ...` for something unrelated cannot reclassify
+/// every real `Account<'info, T>` in the scan.
+fn alias_target<'a>(
+    ty: &syn::Type,
+    resolve: &impl Fn(&str) -> Option<&'a syn::Type>,
+) -> Option<&'a syn::Type> {
+    const ANCHOR_NAMES: &[&str] = &[
+        "Signer",
+        "AccountInfo",
+        "UncheckedAccount",
+        "SystemAccount",
+        "Account",
+        "InterfaceAccount",
+        "AccountLoader",
+        "Loader",
+        "Program",
+        "Interface",
+        "Sysvar",
+        "Box",
+        "Option",
+    ];
+    let syn::Type::Path(path) = ty else {
+        return None;
+    };
+    let name = path.path.segments.last()?.ident.to_string();
+    if ANCHOR_NAMES.contains(&name.as_str()) {
+        return None;
+    }
+    resolve(&name)
 }
 
 /// If `ty` is `Wrapper<Inner>` for the named wrapper, yield `Inner`.

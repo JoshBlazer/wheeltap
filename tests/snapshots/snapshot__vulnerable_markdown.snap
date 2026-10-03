@@ -4,13 +4,13 @@ expression: "wheeltap_report::markdown::render(&report)"
 ---
 # Wheeltap
 
-**17 findings** in 12 files, 670 lines.
+**20 findings** in 15 files, 850 lines.
 
 | Severity | Count |
 |---|---|
 | critical | 3 |
-| high | 11 |
-| medium | 2 |
+| high | 12 |
+| medium | 4 |
 | low | 1 |
 
 ## Critical
@@ -213,6 +213,20 @@ expression: "wheeltap_report::markdown::render(&report)"
 
 <sub>[reference](https://www.anchor-lang.com/docs/account-types) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
 
+### `WT014` WT014_unrelated_remaining_accounts/matching.rs:48
+
+`get_maker_and_maker_stats` takes `maker` (`User`) and `maker_stats` (`UserStats`) from the remaining accounts. Both record `authority`, and nothing compares them, in `get_maker_and_maker_stats` or in anything that calls it. A caller can pass one owner's `User` with another owner's `UserStats`.
+
+```rust
+    let maker_stats: AccountLoader<UserStats> = AccountLoader::try_from(maker_stats_info)?;
+```
+
+**Fix.** Compare the stored authorities before using the accounts together: `require_keys_eq!(a.load()?.authority, b.load()?.authority)`. Where the pair has a fixed relationship, deriving one account's address from the other with `Pubkey::find_program_address` and comparing keys is stronger still.
+
+<sub>high · confidence medium · `get_maker_and_maker_stats.maker_stats` · id `21d50268ab7ad002`</sub>
+
+<sub>[reference](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf) · [reference](https://www.anchor-lang.com/docs/references/account-types)</sub>
+
 ## Medium
 
 ### `WT008` WT008_unsafe_close/closer.rs:23
@@ -242,6 +256,34 @@ expression: "wheeltap_report::markdown::render(&report)"
 <sub>medium · confidence medium · `Transfer.from` · id `ed7f4c41ecffac78`</sub>
 
 <sub>[reference](https://solana.com/developers/courses/program-security/duplicate-mutable-accounts) · [reference](https://github.com/coral-xyz/sealevel-attacks)</sub>
+
+### `WT013` WT013_unused_account/config.rs:33
+
+`SetFee.admin` is an unchecked account that is never used: no handler reads it and no constraint mentions it. Its `CHECK` comment says "only the protocol admin can call this", but no code performs that check. Whatever this account was meant to establish, the instruction never asks it to.
+
+```rust
+    pub admin: UncheckedAccount<'info>,
+```
+
+**Fix.** Remove the account if the instruction does not need it. If it was meant to authorise or constrain the call, write that check: require it to sign, tie it to stored state with `has_one`, or compare its key in the handler.
+
+<sub>medium · confidence medium · `SetFee.admin` · id `b07626097a2f69b8`</sub>
+
+<sub>[reference](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf) · [reference](https://www.anchor-lang.com/docs/references/account-constraints)</sub>
+
+### `WT013` WT013_unused_account/initialize.rs:42
+
+`Initialize.program_signer` is an unchecked account that is never used: no handler reads it and no constraint mentions it. Its `CHECK` comment says "checked in `initialize`", but no code performs that check. Whatever this account was meant to establish, the instruction never asks it to.
+
+```rust
+    pub program_signer: AccountInfo<'info>,
+```
+
+**Fix.** Remove the account if the instruction does not need it. If it was meant to authorise or constrain the call, write that check: require it to sign, tie it to stored state with `has_one`, or compare its key in the handler.
+
+<sub>medium · confidence medium · `Initialize.program_signer` · id `81d128a1c5964877`</sub>
+
+<sub>[reference](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf) · [reference](https://www.anchor-lang.com/docs/references/account-constraints)</sub>
 
 ## Low
 

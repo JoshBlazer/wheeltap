@@ -6,8 +6,16 @@ its findings compared against theirs.
 
 ## The result, stated plainly
 
-**Of the 30 findings in the two reports, Wheeltap reproduces one, and only in
-the weakest sense.** It reports an instance of the *class* Trail of Bits raised
+**v1.1: Wheeltap reproduces three of the 30 — two properly, one weakly.**
+TOB-DRIFT-8 is reported by WT014 on the pre-fix revision the audit names, and
+TOB-DRIFT-18 by WT013 on the scanned commit, where it is still live. Both were
+misses in v1.0, both rules were written because this comparison identified
+them, and both are described under [What v1.1 added](#what-v11-added).
+
+The rest of this section is the v1.0 result, kept as written.
+
+**Of the 30 findings in the two reports, Wheeltap v1.0 reproduces one, and only
+in the weakest sense.** It reports an instance of the *class* Trail of Bits raised
 in TOB-DRIFT-11 (inconsistent use of checked arithmetic) at a different site
 from the one they cite. It finds none of the other 29.
 
@@ -29,7 +37,7 @@ on the fixture corpus. That is written up at the end.
 | Size | 116 files, 73,011 lines, 262 handlers, 155 account structs |
 | Audit 1 | Neodyme AG, May 2024. SHA-256 `b53102cc84db7928…` |
 | Audit 2 | Trail of Bits, February 2023. SHA-256 `a32979f57b9587da…` |
-| Wheeltap | v0.1.0, all twelve rules, default thresholds |
+| Wheeltap | v0.1.0, all twelve rules, default thresholds; re-run with v1.1's fourteen |
 
 Both reports are public in `drift-labs/audits`.
 
@@ -72,15 +80,17 @@ so on. The ten bearing on security are 7, 8, 11, 12, 13, 14, 16, 18, 19 and 20.
 
 | Outcome | Count | Findings |
 |---|---:|---|
+| Reproduced (v1.1) | 2 | TOB 8, 18 |
 | Reproduced, weakly | 1 | TOB-11 |
 | Missed — economic and protocol reasoning | 11 | ND CR-01, MD-01, MD-02, LO-01, LO-02, LO-03, LO-04, IN-02; TOB 4, 14, 20 |
 | Missed — interprocedural dataflow | 1 | ND IN-01 |
-| Missed — accounts outside the declarative model | 1 | TOB 8 |
 | Missed — whole-program consistency | 2 | TOB 12, 13 |
 | Missed — engineering and language practice | 10 | TOB 1, 2, 3, 5, 6, 7, 9, 10, 15, 17 |
 | Missed — type and cast reasoning | 3 | ND IN-03; TOB 16, 19 |
-| Missed — a rule Wheeltap could have but does not | 1 | TOB 18 |
 | **Total** | **30** | |
+
+In v1.0, TOB 8 was a miss for accounts outside the declarative model and
+TOB 18 a miss for a rule Wheeltap could have and did not.
 
 ## What Wheeltap caught
 
@@ -168,7 +178,7 @@ The `/// CHECK:` comment on that account read `checked in initialize_perp_market
 naming a validation that did not happen. Anchor requires a comment on every
 `AccountInfo`, so its presence proves only that the compiler insisted.
 
-### 3. Accounts outside the declarative model — TOB-DRIFT-8
+### 3. Accounts outside the declarative model — TOB-DRIFT-8 *(caught in v1.1)*
 
 `handle_place_and_take_perp_order` pulled `maker` and `maker_stats` off
 `ctx.remaining_accounts` and used them together with nothing checking they
@@ -181,7 +191,7 @@ findings in both.
 The miss is structural. Every account-validation detector starts from
 `#[derive(Accounts)]`; these accounts are never in one. `remaining_accounts` is
 Anchor's escape hatch from the declarative model, and everything the model reads
-goes with it. Kept as `fixtures/known_gaps/TOB_DRIFT_8_remaining_accounts/`.
+goes with it. Kept, in v1.0, as a known gap.
 
 This one stings, because WT005 exists to find exactly this class of unenforced
 relationship — and on the *fixed* code it reports the `user`/`user_stats` pair
@@ -218,7 +228,7 @@ syntactically visible and none covered by a rule Wheeltap has. A `WT0xx —
 truncating cast` rule is a real possibility; `as` conversions that narrow are
 findable, and the false-positive rate would be the whole question.
 
-### The one it could have caught — TOB-DRIFT-18
+### The one it could have caught — TOB-DRIFT-18 *(caught in v1.1)*
 
 > The context definition for the `initialize` instruction defines a
 > `drift_signer` account. However, this account is not used by the instruction.
@@ -229,15 +239,64 @@ Informational and drift left it unresolved — and it is **still live** in the
 scanned commit; `Initialize` declares `drift_signer` and `handle_initialize`
 never mentions it.
 
-Wheeltap does not have this rule. It is the single strongest candidate for the
-next version, and the exercise is what identified it.
+Wheeltap v1.0 did not have this rule. It was the single strongest candidate
+for the next version, and the exercise is what identified it.
+
+## What v1.1 added
+
+### TOB-DRIFT-18, by WT013
+
+WT013 reports an unchecked account that nothing reads:
+
+```
+WT013 medium src/instructions/admin.rs:5262  Initialize.drift_signer
+  `Initialize.drift_signer` is an unchecked account that is never used: no
+  handler reads it and no constraint mentions it. Its `CHECK` comment says
+  "checked in `initialize`", but no code performs that check.
+```
+
+The interesting part is why a reviewer misses it. `handle_initialize` *does*
+mention `drift_signer` — it derives a local of that name with
+`find_program_address` and stores it. The account is never read. WT013 counts
+only reads of the account as an account (`ctx.accounts.drift_signer`, a
+constraint naming it), so the local does not hide it.
+
+The rule is limited to unchecked accounts on the evidence. Reporting every
+unused account gave 39 more findings on drift — keeper cranks with an unused
+`Signer`, and the global `state` passed by convention — none of them a defect.
+
+### TOB-DRIFT-8, by WT014
+
+The model now records accounts deserialised from `remaining_accounts`
+(ADR-020), and WT014 asks whether two of them that store the same authority
+field are ever compared on it. On `optional_accounts.rs` and `user.rs` at
+`8e4f15771cce51f6c74628c19b74c5e83c51ed69`, scanned with the rest of the
+vendored program for the state types:
+
+```
+WT014 high src/instructions/optional_accounts.rs:70
+  get_maker_and_maker_stats.maker_stats
+  `get_maker_and_maker_stats` takes `maker` (`User`) and `maker_stats`
+  (`UserStats`) from the remaining accounts. Both record `authority`, and
+  nothing compares them, in `get_maker_and_maker_stats` or in anything that
+  calls it.
+```
+
+Both `place_and_take` callers are in scope and neither compares the two. The
+neighbouring `get_referrer_and_referrer_stats` has the same shape and is not
+reported, because its caller checks `referrer.authority ==
+referrer_stats.authority` — which is the check this finding asks for.
 
 ## What Wheeltap flagged that the auditors did not
 
-Eleven findings on 73,011 lines. Every one triaged by hand:
+Eleven findings on 73,011 lines in v1.0, fourteen in v1.1. Every one triaged
+by hand:
 
 | Rule | Where | Verdict |
 |---|---|---|
+| WT013 | `admin.rs:5262`, `Initialize.drift_signer` | **True positive** — TOB-DRIFT-18 itself |
+| WT013 | `lp_pool.rs:1918`, `ViewLPPoolSwapFees.drift_signer` | **True positive**, harmless — the same pattern in a view instruction, `CHECK: forced drift_signer` |
+| WT014 | `optional_accounts.rs:107`, `get_maker_and_maker_stats` | **True positive, latent** — TOB-DRIFT-8's helper, unchanged; drift fixed the callers by loading makers through maps, and the helper no longer has any |
 | WT003 | `if_staker.rs:346` | **False positive** — bounded by `validate_transfer` one line above. Inside TOB-DRIFT-11's class. |
 | WT005 ×7 | `keeper.rs`, `user.rs` | **False positives**, one class — see below |
 | WT011 | `FillOrder.filler_stats` | **Unresolved** — a fair question with an out-of-reach answer |

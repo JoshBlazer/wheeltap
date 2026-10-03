@@ -13,14 +13,17 @@
 //! unique regardless (ADR-001).
 
 pub mod constraints;
+pub mod remaining;
 pub mod ty;
 
-use std::path::PathBuf;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 use crate::diag::Diagnostic;
 use crate::loader::Load;
 use crate::source::{FileId, Location, SourceMap};
 use constraints::Constraints;
+use remaining::{Function, RemainingRead};
 use ty::FieldType;
 
 /// One field of a `#[derive(Accounts)]` struct.
@@ -128,6 +131,38 @@ pub struct ProgramModule {
     pub location: Location,
 }
 
+/// A `type` alias, kept so field types can be seen through it.
+#[derive(Debug, Clone)]
+pub struct TypeAlias {
+    pub name: String,
+    pub file: FileId,
+    pub ty: syn::Type,
+}
+
+/// An `impl` block, kept for the methods it gives a type.
+///
+/// Real programs move instruction logic onto the Accounts struct itself —
+/// `impl<'info> Deposit<'info> { fn deposit(&mut self) }`, called as
+/// `ctx.accounts.deposit()` — so a question about how a handler uses its
+/// accounts has to be able to read these too.
+#[derive(Debug, Clone)]
+pub struct ImplBlock {
+    /// The last path segment of the implementing type, e.g. `Deposit`.
+    pub self_ty: String,
+    pub file: FileId,
+    pub item: syn::ItemImpl,
+}
+
+impl ImplBlock {
+    /// The methods this block defines.
+    pub fn methods(&self) -> impl Iterator<Item = &syn::ImplItemFn> {
+        self.item.items.iter().filter_map(|item| match item {
+            syn::ImplItem::Fn(method) => Some(method),
+            _ => None,
+        })
+    }
+}
+
 /// Everything a scan knows about the code under analysis.
 ///
 /// Not `Send`/`Sync`: it retains `syn` nodes, and `proc-macro2` uses `Rc`
@@ -141,7 +176,16 @@ pub struct ProgramContext {
     pub handlers: Vec<Handler>,
     pub accounts: Vec<AccountsStruct>,
     pub states: Vec<AccountState>,
+    pub impls: Vec<ImplBlock>,
+    /// Every free function and method, handlers included. Rules that follow
+    /// remaining accounts need the helpers they are loaded in.
+    pub functions: Vec<Function>,
+    /// Typed accounts deserialised from `ctx.remaining_accounts`.
+    pub remaining: Vec<RemainingRead>,
+    pub aliases: Vec<TypeAlias>,
     pub diagnostics: Vec<Diagnostic>,
+    /// `macro_rules!` macros in the scan whose bodies produce Anchor items.
+    generating_macros: BTreeSet<String>,
 }
 
 impl ProgramContext {
@@ -162,13 +206,31 @@ impl ProgramContext {
             handlers: Vec::new(),
             accounts: Vec::new(),
             states: Vec::new(),
+            impls: Vec::new(),
+            functions: Vec::new(),
+            remaining: Vec::new(),
+            aliases: Vec::new(),
             diagnostics,
+            generating_macros: BTreeSet::new(),
         };
+
+        // Aliases and macro definitions may be declared in any file, after the
+        // code that uses them, so they are collected before the walk.
+        for file in &parsed {
+            ctx.prepass(&file.ast.items, file.id);
+        }
 
         for file in &parsed {
             let mut path = Vec::new();
             ctx.walk(&file.ast.items, file.id, &mut path, None);
         }
+
+        ctx.remaining = ctx
+            .functions
+            .iter()
+            .enumerate()
+            .flat_map(|(index, function)| function.reads(index))
+            .collect();
 
         ctx
     }
@@ -179,22 +241,75 @@ impl ProgramContext {
         Self::build(crate::loader::load(path))
     }
 
-    /// Look up an Accounts struct by name.
+    /// The Accounts struct a name refers to, seen from `from`.
+    ///
+    /// Names are resolved to the *nearest* definition: the same file, then
+    /// the one sharing the deepest directory, then anywhere. Two programs in a
+    /// workspace routinely both define `Initialize` and `Config`, and taking
+    /// the first match had a rule describing one program's struct with the
+    /// other's fields. Nearest-first is not rustc's module resolution
+    /// (ADR-001), but it agrees with it for every layout Anchor generates.
     #[must_use]
-    pub fn accounts_struct(&self, name: &str) -> Option<&AccountsStruct> {
-        self.accounts.iter().find(|a| a.name == name)
+    pub fn accounts_struct(&self, name: &str, from: FileId) -> Option<&AccountsStruct> {
+        self.nearest(self.accounts.iter().filter(|a| a.name == name), from, |a| {
+            a.file
+        })
     }
 
-    /// Look up an account data struct by name.
+    /// The account data struct a name refers to, seen from `from`. Resolved
+    /// nearest-first, as [`Self::accounts_struct`].
     #[must_use]
-    pub fn state(&self, name: &str) -> Option<&AccountState> {
-        self.states.iter().find(|s| s.name == name)
+    pub fn state(&self, name: &str, from: FileId) -> Option<&AccountState> {
+        self.nearest(self.states.iter().filter(|s| s.name == name), from, |s| {
+            s.file
+        })
     }
 
     /// The Accounts struct a handler operates on.
     #[must_use]
     pub fn handler_accounts(&self, handler: &Handler) -> Option<&AccountsStruct> {
-        self.accounts_struct(handler.accounts_struct.as_deref()?)
+        self.accounts_struct(handler.accounts_struct.as_deref()?, handler.file)
+    }
+
+    /// The candidate closest to `from`, the earliest on a tie so that the
+    /// answer does not depend on iteration details.
+    fn nearest<'a, T>(
+        &self,
+        candidates: impl Iterator<Item = &'a T>,
+        from: FileId,
+        file_of: impl Fn(&T) -> FileId,
+    ) -> Option<&'a T> {
+        let mut best: Option<(usize, &'a T)> = None;
+        for candidate in candidates {
+            let score = self.closeness(from, file_of(candidate));
+            if best.is_none_or(|(top, _)| score > top) {
+                best = Some((score, candidate));
+            }
+        }
+        best.map(|(_, candidate)| candidate)
+    }
+
+    /// How close two files are: the same file beats everything, and otherwise
+    /// the number of directories their relative paths share.
+    fn closeness(&self, a: FileId, b: FileId) -> usize {
+        if a == b {
+            return usize::MAX;
+        }
+        let dir = |id| {
+            self.sources
+                .get(id)
+                .relative
+                .parent()
+                .map(Path::to_path_buf)
+        };
+        match (dir(a), dir(b)) {
+            (Some(a), Some(b)) => a
+                .components()
+                .zip(b.components())
+                .take_while(|(x, y)| x == y)
+                .count(),
+            _ => 0,
+        }
     }
 
     /// Handlers declared inside a `#[program]` module — the instruction
@@ -203,11 +318,30 @@ impl ProgramContext {
         self.handlers.iter().filter(|h| h.is_entrypoint())
     }
 
-    /// Every handler declared for a given Accounts struct.
-    pub fn handlers_for<'a>(&'a self, accounts: &'a str) -> impl Iterator<Item = &'a Handler> {
-        self.handlers
-            .iter()
-            .filter(move |h| h.accounts_struct.as_deref() == Some(accounts))
+    /// Every handler whose `Context<T>` resolves to this Accounts struct.
+    pub fn handlers_for<'a>(
+        &'a self,
+        accounts: &'a AccountsStruct,
+    ) -> impl Iterator<Item = &'a Handler> {
+        self.handlers.iter().filter(move |h| {
+            h.accounts_struct.as_deref() == Some(accounts.name.as_str())
+                && self.is(self.accounts_struct(&accounts.name, h.file), accounts)
+        })
+    }
+
+    /// Every `impl` block whose type resolves to this Accounts struct.
+    pub fn impls_for<'a>(
+        &'a self,
+        accounts: &'a AccountsStruct,
+    ) -> impl Iterator<Item = &'a ImplBlock> {
+        self.impls.iter().filter(move |i| {
+            i.self_ty == accounts.name
+                && self.is(self.accounts_struct(&accounts.name, i.file), accounts)
+        })
+    }
+
+    fn is(&self, resolved: Option<&AccountsStruct>, accounts: &AccountsStruct) -> bool {
+        resolved.is_some_and(|r| std::ptr::eq(r, accounts))
     }
 
     /// Whether this looks like Anchor code at all. A scan of a tree with no
@@ -257,6 +391,14 @@ impl ProgramContext {
                     if let Some(handler) = handler(func, file, &scope, program) {
                         self.handlers.push(handler);
                     }
+                    let name = func.sig.ident.to_string();
+                    self.functions.push(Function::new(
+                        name.clone(),
+                        join(path, &name),
+                        file,
+                        &func.sig,
+                        &func.block,
+                    ));
                 }
                 syn::Item::Struct(item) => {
                     if derives(&item.attrs, "Accounts") {
@@ -265,9 +407,95 @@ impl ProgramContext {
                         self.add_state(item, file, path);
                     }
                 }
+                syn::Item::Macro(mac) if !mac.mac.path.is_ident("macro_rules") => {
+                    self.macro_invocation(mac, file);
+                }
+                syn::Item::Impl(item) => {
+                    if let Some(self_ty) = type_name(&item.self_ty) {
+                        for method in item.items.iter().filter_map(|i| match i {
+                            syn::ImplItem::Fn(method) => Some(method),
+                            _ => None,
+                        }) {
+                            let name = method.sig.ident.to_string();
+                            self.functions.push(Function::new(
+                                name.clone(),
+                                join(path, &format!("{self_ty}::{name}")),
+                                file,
+                                &method.sig,
+                                &method.block,
+                            ));
+                        }
+                        self.impls.push(ImplBlock {
+                            self_ty,
+                            file,
+                            item: item.clone(),
+                        });
+                    }
+                }
                 _ => {}
             }
         }
+    }
+
+    /// Collect what the walk needs to have seen everywhere first.
+    fn prepass(&mut self, items: &[syn::Item], file: FileId) {
+        for item in items {
+            match item {
+                syn::Item::Type(alias) => self.aliases.push(TypeAlias {
+                    name: alias.ident.to_string(),
+                    file,
+                    ty: (*alias.ty).clone(),
+                }),
+                syn::Item::Macro(mac) if mac.mac.path.is_ident("macro_rules") => {
+                    if let Some(name) = &mac.ident
+                        && generates_anchor_items(&mac.mac.tokens)
+                    {
+                        self.generating_macros.insert(name.to_string());
+                    }
+                }
+                syn::Item::Mod(module) => {
+                    if let Some((_, items)) = &module.content {
+                        self.prepass(items, file);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// An item-level macro invocation. Its expansion is invisible (ADR-001),
+    /// which is harmless for most macros and a silent gap for one that emits
+    /// Accounts structs or handlers. Those are reported, so a clean scan of a
+    /// macro-heavy program does not read as a clean program.
+    fn macro_invocation(&mut self, mac: &syn::ItemMacro, file: FileId) {
+        let Some(name) = mac.mac.path.segments.last().map(|s| s.ident.to_string()) else {
+            return;
+        };
+        // Either the scan saw the macro's definition emit Anchor items, or the
+        // invocation hands it some: `wrap! { #[derive(Accounts)] struct .. }`
+        // for a macro defined in another crate.
+        if !self.generating_macros.contains(&name) && !generates_anchor_items(&mac.mac.tokens) {
+            return;
+        }
+        let at = Location::from_span(file, name_span(&mac.mac.path));
+        self.diagnostics.push(
+            Diagnostic::warning(
+                &self.sources.get(file).path,
+                format!(
+                    "`{name}!` expands to Anchor accounts or handlers, which are not analysed; \
+                     findings inside its expansion will be missed"
+                ),
+            )
+            .at_line(at.start.line),
+        );
+    }
+
+    /// The aliased type for `name`, seen from `from`, nearest first.
+    fn alias(&self, name: &str, from: FileId) -> Option<&syn::Type> {
+        self.nearest(self.aliases.iter().filter(|a| a.name == name), from, |a| {
+            a.file
+        })
+        .map(|a| &a.ty)
     }
 
     fn add_accounts_struct(&mut self, item: &syn::ItemStruct, file: FileId, path: &[String]) {
@@ -276,7 +504,10 @@ impl ProgramContext {
         let fields = item
             .fields
             .iter()
-            .filter_map(|field| account_field(field, file, &item_path))
+            .filter_map(|field| {
+                let ty = ty::classify_with(&field.ty, |alias| self.alias(alias, file));
+                account_field(field, ty, file, &item_path)
+            })
             .collect();
 
         self.accounts.push(AccountsStruct {
@@ -373,13 +604,18 @@ fn context_accounts_type(ty: &syn::Type) -> Option<String> {
 
 /// Model one field of an Accounts struct. Unnamed fields are skipped: Anchor
 /// requires named fields, so a tuple struct is not an account list.
-fn account_field(field: &syn::Field, file: FileId, struct_path: &str) -> Option<AccountField> {
+fn account_field(
+    field: &syn::Field,
+    ty: FieldType,
+    file: FileId,
+    struct_path: &str,
+) -> Option<AccountField> {
     let ident = field.ident.as_ref()?;
     let name = ident.to_string();
     Some(AccountField {
         item_path: format!("{struct_path}.{name}"),
         name,
-        ty: ty::classify(&field.ty),
+        ty,
         constraints: constraints::parse(&field.attrs, file),
         check_comment: check_comment(&field.attrs),
         location: Location::from_span(file, ident.span()),
@@ -458,6 +694,40 @@ fn derives(attrs: &[syn::Attribute], name: &str) -> bool {
         });
         found
     })
+}
+
+/// Whether a `macro_rules!` body emits Accounts structs or handlers: it
+/// derives `Accounts`, or writes a function taking a `Context`.
+fn generates_anchor_items(tokens: &proc_macro2::TokenStream) -> bool {
+    fn idents(stream: &proc_macro2::TokenStream, out: &mut BTreeSet<String>) {
+        for token in stream.clone() {
+            match token {
+                proc_macro2::TokenTree::Ident(ident) => {
+                    out.insert(ident.to_string());
+                }
+                proc_macro2::TokenTree::Group(group) => idents(&group.stream(), out),
+                _ => {}
+            }
+        }
+    }
+    let mut seen = BTreeSet::new();
+    idents(tokens, &mut seen);
+    (seen.contains("derive") && seen.contains("Accounts")) || seen.contains("Context")
+}
+
+/// The span of a path's last segment, where a macro invocation is named.
+fn name_span(path: &syn::Path) -> proc_macro2::Span {
+    path.segments
+        .last()
+        .map_or_else(proc_macro2::Span::call_site, |s| s.ident.span())
+}
+
+/// The last path segment of a type, ignoring its generic arguments.
+fn type_name(ty: &syn::Type) -> Option<String> {
+    let syn::Type::Path(path) = ty else {
+        return None;
+    };
+    Some(path.path.segments.last()?.ident.to_string())
 }
 
 fn join(path: &[String], name: &str) -> String {

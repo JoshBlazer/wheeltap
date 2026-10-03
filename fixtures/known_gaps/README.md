@@ -25,26 +25,6 @@ closed.
 
 ## The gaps
 
-### `TOB_DRIFT_8_remaining_accounts/` — accounts that never appear in a struct
-
-Two accounts pulled off `ctx.remaining_accounts` by hand, deserialised, and used
-together with nothing establishing that they belong to the same user. This is
-Trail of Bits' TOB-DRIFT-8 against drift, reduced to its shape.
-
-**Why it is missed.** Every account-validation detector starts from
-`#[derive(Accounts)]`. These accounts are never in one. `remaining_accounts` is
-Anchor's escape hatch from the declarative model, and everything the model reads
-goes with it.
-
-Verified against the real code, not inferred: scanning drift's pre-fix
-`optional_accounts.rs` and `user.rs` at
-`8e4f15771cce51f6c74628c19b74c5e83c51ed69` also reports nothing.
-
-**What would close it.** A separate analysis keyed on `next_account_info`:
-track each account taken from the iterator, note the type it is deserialised
-into, and ask whether anything relates them before use. A different rule from
-WT005, not a widening of it — the evidence is in statements, not attributes.
-
 ### `ND_DFT1_IN_01_oracle_read_in_helper/` — a read one call away
 
 An `AccountInfo` oracle with no owner constraint, whose data is read inside a
@@ -65,39 +45,18 @@ the fix, reports nothing.
 `AccountInfo`'s data, propagated to callers — the first genuinely
 interprocedural analysis the tool would have.
 
-### `WT001_unreferenced_admin/` — an unsigned admin with no recorded relationship
+## Closed gaps
 
-```rust
-#[derive(Accounts)]
-pub struct SetFee<'info> {
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, Config>,
+A gap that a rule starts catching is promoted to `fixtures/vulnerable/`, under
+the rule that catches it, and its write-up moves to that rule's entry in
+`docs/DETECTORS.md`.
 
-    /// CHECK: only the protocol admin can call this
-    pub admin: UncheckedAccount<'info>,
-}
-```
+| Gap | Closed in | By | Now at |
+|---|---|---|---|
+| `TOB_DRIFT_8_remaining_accounts` — accounts taken from `remaining_accounts`, never related | v1.1 | WT014, on a model of remaining accounts (ADR-020) | `vulnerable/WT014_unrelated_remaining_accounts/` |
+| `WT001_unreferenced_admin` — an unsigned admin nothing reads | v1.1 | WT013, which asks whether the account is used at all | `vulnerable/WT013_unused_account/` |
 
-Anyone can call `set_fee_bps`. The `admin` account is never required to sign,
-and — unlike the vault fixture — the config does not record it with a `has_one`,
-so there is no structural evidence tying this account to an authority role.
-
-**Why WT001 misses it.** The only remaining signal is the *name*. An earlier
-version of the rule did fire on names, and the corpus verdict was decisive: 66
-findings across `anchor-misc` and `drift`, and every one sampled was a false
-positive. Two classes dominated:
-
-- `mint_authority` and `freeze_authority` on `init` — the authority being
-  *assigned to a newly created mint*, not an account authorising the call.
-- drift's `drift_signer` — a program-derived signer the program signs for
-  itself.
-
-Reporting a Critical-severity finding on 66 pieces of correct code, to catch this
-one, is a bad trade. The rule that keeps the tool installed is the one that stays
-quiet.
-
-**What would close it.** Evidence that the account authorises *this* instruction
-rather than merely being named like an authority — for example, seeing the field
-compared against a stored admin key, or used as the authority of a CPI whose
-seeds the program does not supply. That is dataflow, and it is out of scope for
-a syntactic analyser (ADR-001).
+WT001 still does not report the second, and should not: the only signal WT001
+has for it is the name `admin`, and its name-based version reported 66
+findings on correct code (`docs/BENCHMARKS.md`). WT013 catches it from a
+direction that costs nothing on the corpus.

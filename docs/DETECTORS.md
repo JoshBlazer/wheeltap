@@ -48,8 +48,10 @@ collapses them into one number.
 | WT010 | Unchecked deserialisation | High | High | implemented |
 | WT011 | Duplicate mutable accounts | Medium | Medium | implemented |
 | WT012 | Allocation in a loop | Low | Medium | implemented |
+| WT013 | Unused account | Medium | Medium | implemented |
+| WT014 | Unrelated remaining accounts | High | Medium | implemented |
 
-All twelve are implemented, each with vulnerable fixtures it must catch and safe
+All fourteen are implemented, each with vulnerable fixtures it must catch and safe
 fixtures it must not flag. Measured noise on 76,381 lines of third-party code is
 in [`BENCHMARKS.md`](BENCHMARKS.md).
 
@@ -136,11 +138,12 @@ real code:
   its mint uses the same syntax, so the target must also be unchecked or
   authority-named. `has_one = mint` on an `Account<'info, Mint>` is not reported.
 
-**Known false negatives**, both documented in `fixtures/known_gaps/`:
+**Known false negatives:**
 
 - An unsigned authority with **no `has_one`** recording it — nothing structural
   ties the account to an authority role, and matching on the name alone produced
-  66 false positives across the corpus against this one true positive.
+  66 false positives across the corpus against this one true positive. When
+  nothing reads the account at all, WT013 reports it instead.
 - An account list where **something else signs** but the authority still should
   have, such as a withdrawal authorised by a payer.
 - A signature asserted in a *called* function rather than in the account list
@@ -873,6 +876,198 @@ for index in 0..pool.weights.len() { ... }
 #### References
 
 - [Solana: compute budget](https://solana.com/docs/core/fees#compute-budget)
+
+---
+
+### WT013 — Unused account
+
+**Severity:** Medium · **Confidence:** Medium · **Since:** v1.1
+
+#### What it finds
+
+An `AccountInfo` or `UncheckedAccount` in an instruction's account list that
+nothing reads: no handler mentions it, no method on the Accounts struct does,
+and no other account's constraint names it.
+
+#### Why it matters
+
+An unchecked account carries no validation of its own, so the only reason to
+declare one is to check it by hand. When nothing reads it, that check does not
+exist — and the `/// CHECK:` comment Anchor demands usually says it does.
+
+```rust
+/// CHECK: only the protocol admin can call this
+pub admin: UncheckedAccount<'info>,
+```
+
+Anyone can call that instruction. The comment is a note, not a check.
+
+Trail of Bits reported this class against drift as TOB-DRIFT-18 (`Initialize`
+declares `drift_signer` and never uses it), at Informational. It is still live
+in the scanned commit, and Wheeltap now reports it.
+
+#### Vulnerable
+
+```rust
+pub fn set_fee_bps(ctx: Context<SetFee>, fee_bps: u16) -> Result<()> {
+    ctx.accounts.config.fee_bps = fee_bps;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct SetFee<'info> {
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+
+    /// CHECK: only the protocol admin can call this
+    pub admin: UncheckedAccount<'info>,
+}
+```
+
+#### Fixed
+
+If the account authorises the call, say so in its type and tie it to state:
+
+```rust
+#[account(mut, seeds = [b"config"], bump = config.bump, has_one = admin)]
+pub config: Account<'info, Config>,
+
+pub admin: Signer<'info>,
+```
+
+If the instruction does not need it, remove it.
+
+#### What counts as a use
+
+The account must be read *as an account*:
+
+- `ctx.accounts.admin`, in the handler or in any handler sharing the struct;
+- a field of a destructured (`let SetFee { admin, .. } = ctx.accounts`) or
+  aliased (`let accounts = &mut ctx.accounts`) account list;
+- `self.admin` in an `impl` on the Accounts struct;
+- a mention in another field's constraint — `payer = admin`, `has_one = admin`,
+  a seed, `token::authority = admin`.
+
+A local variable that shares the name is **not** a use. That is how drift's
+instance hides: `handle_initialize` derives a local called `drift_signer` and
+never touches the account.
+
+Accounts Anchor acts on itself — `init`, `zero`, `close`, `realloc` — are
+used by definition. So is an account whose own constraints relate it to
+another, which makes it the one doing the checking.
+
+#### Limits
+
+- **Unchecked accounts only.** An unused `Signer` or `Account<T>` is not
+  reported. On drift, 20 unused signers were permissionless cranks
+  (`keeper: Signer`) where any signer is the design, and 19 unused typed
+  accounts were mostly the global `state` passed by convention — 39 findings,
+  none a defect. A forgotten `Signer` authority looks identical to an intended
+  crank, which is the same question WT005 cannot answer.
+- **Silent when the accounts escape.** If any handler passes its context or
+  account list to something this analysis cannot follow — a helper function,
+  `to_account_infos()` — the whole struct is skipped. The use may be one call
+  away (ADR-001).
+- **Silent when the handler reads no accounts at all.** An instruction that
+  does all its work in constraints, like Anchor's own constraint tests, gives
+  the rule nothing to compare against.
+- A field read only inside a `macro_rules!` macro *defined elsewhere* is seen
+  only if its name appears in the invocation's tokens.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT013) -- required by the client's account layout
+```
+
+#### References
+
+- [Trail of Bits, Drift Protocol v2 review, TOB-DRIFT-18](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf)
+- [Anchor: account constraints](https://www.anchor-lang.com/docs/references/account-constraints)
+
+---
+
+### WT014 — Unrelated remaining accounts
+
+**Severity:** High · **Confidence:** Medium · **Since:** v1.1
+
+#### What it finds
+
+Two accounts taken from `ctx.remaining_accounts` and deserialised into
+different program state types that both record an authority — a `User` and a
+`UserStats`, each with `authority: Pubkey` — where nothing compares that field
+across the two.
+
+#### Why it matters
+
+`remaining_accounts` is Anchor's escape hatch from `#[derive(Accounts)]`, and
+every constraint goes with it. Inside an Accounts struct the relationship
+would be a `has_one` or a seed. Here it exists only if the program writes it.
+
+Trail of Bits found exactly this in drift (TOB-DRIFT-8): the maker's `User`
+and `UserStats` were loaded from the remaining accounts for `place_and_take`
+with nothing tying them to the same trader. A caller could pass one trader's
+account and another's statistics, and the fill was credited across the pair.
+
+Wheeltap reports it on the revision the audit names
+(`8e4f15771cce51f6c74628c19b74c5e83c51ed69`), at the helper and with both
+callers in scope.
+
+#### Vulnerable
+
+```rust
+fn get_maker_and_maker_stats<'a>(
+    iter: &mut Peekable<Iter<'a, AccountInfo<'a>>>,
+) -> Result<(AccountLoader<'a, User>, AccountLoader<'a, UserStats>)> {
+    let maker: AccountLoader<User> = AccountLoader::try_from(next_account_info(iter)?)?;
+    let maker_stats: AccountLoader<UserStats> = AccountLoader::try_from(next_account_info(iter)?)?;
+    Ok((maker, maker_stats))
+}
+```
+
+#### Fixed
+
+```rust
+require_keys_eq!(maker.load()?.authority, maker_stats.load()?.authority);
+```
+
+in the helper, or in every caller before the pair is used.
+
+#### What counts as relating them
+
+A statement naming the shared field on both sides of `==`, `!=`, `.eq(..)`,
+or `require_keys_eq!`/`require_keys_neq!` — in the function that loads the
+accounts, or in any function that calls it. Drift's referrer handling loads
+the pair in a helper and checks in the caller, and is not reported.
+
+#### Limits
+
+- **Only authority-like fields** (`authority`, `owner`, `admin`, and the rest of
+  the list in `names.rs`) are read as a claim that two accounts belong
+  together. Two accounts sharing a `mint` or an `oracle` are not reported,
+  related or not.
+- **Only `try_from` on a typed wrapper** — `AccountLoader`, `Account`,
+  `InterfaceAccount` — is recognised as a read, with the type taken from a
+  turbofish or the binding's annotation. Raw `AccountInfo` reads from the
+  remaining accounts are not modelled.
+- **Reads inside a loop are not a pair.** A map loader walking every account
+  matches them by key at use, so pairing is not its question. A real pair
+  loaded in a loop would be missed.
+- **Callers one level up only.** A check two calls above the loader is not
+  seen, and a check in *any* caller silences the finding for all of them.
+- A comparison that names the field once, against a local holding the other
+  side, is not recognised.
+
+#### Suppressing
+
+```rust
+// wheeltap:allow(WT014) -- the pair is matched by key in the caller's map
+```
+
+#### References
+
+- [Trail of Bits, Drift Protocol v2 review, TOB-DRIFT-8](https://github.com/trailofbits/publications/blob/master/reviews/2023-02-driftv2-securityreview.pdf)
+- [Anchor: account types](https://www.anchor-lang.com/docs/references/account-types)
 
 ---
 

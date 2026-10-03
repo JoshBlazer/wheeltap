@@ -20,6 +20,10 @@ pub struct ContextSummary {
     pub handlers: Vec<HandlerSummary>,
     pub accounts: Vec<AccountsSummary>,
     pub states: Vec<StateSummary>,
+    /// Typed accounts taken from `ctx.remaining_accounts`, which no Accounts
+    /// struct describes.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remaining_accounts: Vec<RemainingSummary>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -80,6 +84,18 @@ pub struct FieldSummary {
 }
 
 #[derive(Debug, Serialize)]
+pub struct RemainingSummary {
+    /// The function that deserialises it.
+    pub function: String,
+    pub binding: String,
+    /// The wrapper and state type, e.g. `AccountLoader<User>`.
+    #[serde(rename = "type")]
+    pub ty: String,
+    pub file: String,
+    pub line: usize,
+}
+
+#[derive(Debug, Serialize)]
 pub struct StateSummary {
     pub name: String,
     pub file: String,
@@ -116,6 +132,19 @@ impl ProgramContext {
             .collect();
         states.sort_by(|a, b| (&a.file, &a.name).cmp(&(&b.file, &b.name)));
 
+        let mut remaining_accounts: Vec<_> = self
+            .remaining
+            .iter()
+            .map(|read| RemainingSummary {
+                function: self.functions[read.function].item_path.clone(),
+                binding: read.binding.clone(),
+                ty: format!("{}<{}>", read.wrapper, read.state),
+                file: self.sources.display_path(read.location.file),
+                line: read.location.start.line,
+            })
+            .collect();
+        remaining_accounts.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+
         let mut diagnostics = self.diagnostics.clone();
         diagnostics.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
 
@@ -128,6 +157,7 @@ impl ProgramContext {
             handlers,
             accounts,
             states,
+            remaining_accounts,
             diagnostics,
         }
     }

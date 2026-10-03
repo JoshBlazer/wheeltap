@@ -930,3 +930,85 @@ more useful thing to be able to say than "the rule did not fire".
 - The pre-fix files are fetched, not vendored. They are third-party source at
   revisions with known vulnerabilities, and the repository has no reason to
   carry them.
+
+---
+
+## ADR-019 — Names resolve to the nearest definition
+
+**Date:** 2026-10-03
+**Status:** Accepted
+
+### Context
+
+Accounts structs and `#[account]` state were looked up by bare name, first
+match wins. Two programs in one workspace routinely share names — every Anchor
+template has an `Initialize`, most protocols a `Config` — and the scan has no
+module resolution (ADR-001, and `mod x;` is not followed).
+
+The failure was concrete. Adding a fixture with its own `Config` made WT005
+describe it using the fields of a different fixture's `Config`, in a finding
+that read as entirely plausible.
+
+### Decision
+
+Every name lookup takes the file asking. The candidate in the same file wins;
+otherwise the one whose relative path shares the most leading directories;
+ties go to the earliest. `handlers_for` and `impls_for` return only code whose
+reference resolves back to the struct in question. Type aliases resolve the
+same way.
+
+### Rationale
+
+Following `mod x;` and `use` paths would answer the question properly and means
+reimplementing rustc's module resolution, which ADR-001 rejected. Nearest-first
+agrees with real resolution for every layout Anchor generates — one crate per
+program under `programs/`, state and instructions as sibling modules — because
+a name is almost always defined in the crate that uses it.
+
+It does not change finding identity. Following modules would have: item paths
+would gain the module path of every file, and every existing baseline would
+report everything as new.
+
+### Consequences
+
+- No change to findings on the corpus; the gain is in multi-program trees.
+- A program that genuinely uses a same-named type from a sibling crate deeper
+  in the tree than its own would resolve wrongly. No such layout has been seen.
+
+---
+
+## ADR-020 — Remaining accounts are modelled from statements
+
+**Date:** 2026-10-03
+**Status:** Accepted
+
+### Context
+
+Every account-validation rule started from `#[derive(Accounts)]`. Accounts
+taken from `ctx.remaining_accounts` never appear in one, which is how
+TOB-DRIFT-8 was missed entirely and why it was kept as a known gap.
+
+### Decision
+
+The model records every function and method, and for functions that work on
+remaining accounts — they mention `remaining_accounts` or take an iterator or
+slice of `AccountInfo` — each local bound from `AccountLoader::try_from`,
+`Account::try_from`, or `InterfaceAccount::try_from`, with its state type
+(from a turbofish or the binding's annotation) and whether it is read in a
+loop. `debug-context` prints them.
+
+### Rationale
+
+This is the narrowest model that answers TOB-DRIFT-8's question: which typed
+accounts arrive by hand, and as what. Raw `AccountInfo` reads, accounts
+threaded through structs, and dataflow between functions are left out; each
+would cost more than the rules built on it so far need.
+
+### Consequences
+
+- WT014 asks whether two such accounts that both store an authority are ever
+  compared on it, in the loader or in any caller. It reports TOB-DRIFT-8 on
+  the pre-fix revision the audit names.
+- Reads inside loops are marked, because map loaders take every remaining
+  account and match them by key at use; treating those as pairs would report
+  drift's every user map.
