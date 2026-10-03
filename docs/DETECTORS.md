@@ -138,11 +138,12 @@ real code:
   its mint uses the same syntax, so the target must also be unchecked or
   authority-named. `has_one = mint` on an `Account<'info, Mint>` is not reported.
 
-**Known false negatives**, both documented in `fixtures/known_gaps/`:
+**Known false negatives:**
 
 - An unsigned authority with **no `has_one`** recording it — nothing structural
   ties the account to an authority role, and matching on the name alone produced
-  66 false positives across the corpus against this one true positive.
+  66 false positives across the corpus against this one true positive. When
+  nothing reads the account at all, WT013 reports it instead.
 - An account list where **something else signs** but the authority still should
   have, such as a withdrawal authorised by a payer.
 - A signature asserted in a *called* function rather than in the account list

@@ -11,7 +11,7 @@ include the misses** — a tool whose limits are undocumented cannot be trusted.
 
 ## Status
 
-**Complete.** Parsing, modelling, all twelve detectors, and the audit
+**Complete** for v1.1. Parsing, modelling, all fourteen detectors, and the audit
 comparison are measured. The comparison against drift's two published audits
 has its own document: [`docs/AUDIT.md`](AUDIT.md).
 
@@ -45,6 +45,14 @@ questions of the form *does any other account in this program …* and a bigger
 model means more to look through. At this size it does not matter. At ten times
 this size it would, and the honest thing is to record the shape now rather than
 claim a linearity the numbers do not show.
+
+**v1.1** adds a model of remaining accounts and two rules. Measured on drift
+against v1.0 on the same machine (Windows 11, Rust 1.95, release builds, 15
+interleaved runs each), a full scan is about **20% slower**: median 1.40 s to
+1.68 s on that machine, which is slower overall than the Linux one above. The
+first version of the new code cost 60%, nearly all of it from rendering every
+function body to text; that was profiled and removed. The table above is v1.0
+and has not been re-measured on Linux.
 
 Earlier phases measured `debug-context`, which stops before the detectors, at
 0.36 s on drift. The difference — roughly 0.2 s — is what the twelve rules
@@ -86,7 +94,7 @@ Every finding on the corpus is triaged by hand and the verdict recorded. The
 rate is reported per detector, because an aggregate hides the one rule that is
 ruining the experience.
 
-**All twelve rules, over 76,381 lines of third-party code:**
+**All fourteen rules, over 76,381 lines of third-party code:**
 
 | Rule | Findings | True positive | Unresolved | False positive | Notes |
 |---|---|---|---|---|---|
@@ -102,9 +110,13 @@ ruining the experience.
 | WT010 | 0 | — | — | — | |
 | WT011 | 1 | 0 | 1 | 0 | aliasing drift permits on purpose and branches on elsewhere |
 | WT012 | 2 | 2 | 0 | 0 | `WHITELISTED_SWAP_PROGRAMS.to_vec()` inside a loop |
-| **Total** | **24** | **15** | **1** | **8** | **63% precision** |
+| WT013 | 4 | 4 | 0 | 0 | unused unchecked accounts, one of them TOB-DRIFT-18 |
+| WT014 | 1 | 1 | 0 | 0 | TOB-DRIFT-8's helper, still unchecked, no longer called |
+| **Total** | **29** | **20** | **1** | **8** | **69% precision** |
 
-By program: `escrow` **0**, `anchor-misc` 13, `drift` 11.
+By program: `escrow` **0**, `anchor-misc` 15, `drift` 14. v1.0 reported 24
+(15 true positives, 63%); the five additions are all v1.1's new rules, and all
+five are true.
 
 **Unresolved** is a third column because two of the categories were doing work
 they should not. `FillOrder` takes two mutable `UserStats` accounts with nothing
@@ -132,8 +144,21 @@ unconditional write, and `bump = <instruction argument>`. They are correct
 findings about code written to demonstrate exactly those constructs. Nobody is
 exploiting Anchor's test fixtures, but the rules did their job.
 
-The other two are drift's `WHITELISTED_SWAP_PROGRAMS.to_vec()` inside a loop —
-a genuine, if minor, compute inefficiency in production code.
+Two more are drift's `WHITELISTED_SWAP_PROGRAMS.to_vec()` inside a loop — a
+genuine, if minor, compute inefficiency in production code.
+
+The v1.1 five:
+
+- **WT013, `Initialize.drift_signer`** — TOB-DRIFT-18, still live.
+- **WT013, `ViewLPPoolSwapFees.drift_signer`** — the same pattern in a view
+  instruction, under `/// CHECK: forced drift_signer`. Harmless, and unused.
+- **WT013, `TestPdaMutZeroCopy.my_payer`**, twice — Anchor's test programs
+  (`misc` and `misc-optional`) declare an `AccountInfo` with an empty `CHECK`
+  that nothing reads.
+- **WT014, `get_maker_and_maker_stats`** — the helper TOB-DRIFT-8 was about,
+  unchanged since the audit. Drift fixed the callers by loading makers through
+  maps keyed by authority, and nothing calls the helper now; it is a latent
+  copy of the bug, waiting for the next caller.
 
 ### Every false positive, and why it survives
 
@@ -172,6 +197,8 @@ audits, and removed by tightening the rules — never by adjusting a fixture:
 | WT011 | requiring the comparison to name the flagged accounts | 3 | nothing; found by the audit comparison |
 | WT003 | flagging raw lamport arithmetic | 8 | underflow in a hand-rolled lamport transfer |
 | WT003 | *(reversed a Phase 2 decision — see below)* | | |
+| WT013 | reporting unused `Signer` and typed accounts, not only unchecked ones | 43 | an authority `Signer` nothing checks, which looks identical to a keeper crank |
+| WT013 | judging instructions whose handler reads no accounts at all | 23 | unused accounts in constraint-only instructions |
 
 **On reversing the lamport decision.** Phase 2 kept `lamports` in the value-word
 list deliberately, documenting six false positives as an acceptable cost. Phase 3
