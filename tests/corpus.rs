@@ -205,7 +205,10 @@ fn drift_remaining_accounts_are_modelled() {
     // The pair TOB-DRIFT-8 is about, with the type read from the annotation.
     let maker = read("get_maker_and_maker_stats", "maker");
     let stats = read("get_maker_and_maker_stats", "maker_stats");
-    assert_eq!((maker.wrapper.as_str(), maker.state.as_str()), ("AccountLoader", "User"));
+    assert_eq!(
+        (maker.wrapper.as_str(), maker.state.as_str()),
+        ("AccountLoader", "User")
+    );
     assert_eq!(stats.state, "UserStats");
     assert!(!maker.in_loop && !stats.in_loop);
 

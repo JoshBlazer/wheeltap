@@ -16,6 +16,7 @@ pub mod constraints;
 pub mod remaining;
 pub mod ty;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::diag::Diagnostic;
@@ -130,6 +131,14 @@ pub struct ProgramModule {
     pub location: Location,
 }
 
+/// A `type` alias, kept so field types can be seen through it.
+#[derive(Debug, Clone)]
+pub struct TypeAlias {
+    pub name: String,
+    pub file: FileId,
+    pub ty: syn::Type,
+}
+
 /// An `impl` block, kept for the methods it gives a type.
 ///
 /// Real programs move instruction logic onto the Accounts struct itself —
@@ -173,7 +182,10 @@ pub struct ProgramContext {
     pub functions: Vec<Function>,
     /// Typed accounts deserialised from `ctx.remaining_accounts`.
     pub remaining: Vec<RemainingRead>,
+    pub aliases: Vec<TypeAlias>,
     pub diagnostics: Vec<Diagnostic>,
+    /// `macro_rules!` macros in the scan whose bodies produce Anchor items.
+    generating_macros: BTreeSet<String>,
 }
 
 impl ProgramContext {
@@ -197,8 +209,16 @@ impl ProgramContext {
             impls: Vec::new(),
             functions: Vec::new(),
             remaining: Vec::new(),
+            aliases: Vec::new(),
             diagnostics,
+            generating_macros: BTreeSet::new(),
         };
+
+        // Aliases and macro definitions may be declared in any file, after the
+        // code that uses them, so they are collected before the walk.
+        for file in &parsed {
+            ctx.prepass(&file.ast.items, file.id);
+        }
 
         for file in &parsed {
             let mut path = Vec::new();
@@ -387,6 +407,9 @@ impl ProgramContext {
                         self.add_state(item, file, path);
                     }
                 }
+                syn::Item::Macro(mac) if !mac.mac.path.is_ident("macro_rules") => {
+                    self.macro_invocation(mac, file);
+                }
                 syn::Item::Impl(item) => {
                     if let Some(self_ty) = type_name(&item.self_ty) {
                         for method in item.items.iter().filter_map(|i| match i {
@@ -414,13 +437,77 @@ impl ProgramContext {
         }
     }
 
+    /// Collect what the walk needs to have seen everywhere first.
+    fn prepass(&mut self, items: &[syn::Item], file: FileId) {
+        for item in items {
+            match item {
+                syn::Item::Type(alias) => self.aliases.push(TypeAlias {
+                    name: alias.ident.to_string(),
+                    file,
+                    ty: (*alias.ty).clone(),
+                }),
+                syn::Item::Macro(mac) if mac.mac.path.is_ident("macro_rules") => {
+                    if let Some(name) = &mac.ident
+                        && generates_anchor_items(&mac.mac.tokens)
+                    {
+                        self.generating_macros.insert(name.to_string());
+                    }
+                }
+                syn::Item::Mod(module) => {
+                    if let Some((_, items)) = &module.content {
+                        self.prepass(items, file);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// An item-level macro invocation. Its expansion is invisible (ADR-001),
+    /// which is harmless for most macros and a silent gap for one that emits
+    /// Accounts structs or handlers. Those are reported, so a clean scan of a
+    /// macro-heavy program does not read as a clean program.
+    fn macro_invocation(&mut self, mac: &syn::ItemMacro, file: FileId) {
+        let Some(name) = mac.mac.path.segments.last().map(|s| s.ident.to_string()) else {
+            return;
+        };
+        // Either the scan saw the macro's definition emit Anchor items, or the
+        // invocation hands it some: `wrap! { #[derive(Accounts)] struct .. }`
+        // for a macro defined in another crate.
+        if !self.generating_macros.contains(&name) && !generates_anchor_items(&mac.mac.tokens) {
+            return;
+        }
+        let at = Location::from_span(file, name_span(&mac.mac.path));
+        self.diagnostics.push(
+            Diagnostic::warning(
+                &self.sources.get(file).path,
+                format!(
+                    "`{name}!` expands to Anchor accounts or handlers, which are not analysed; \
+                     findings inside its expansion will be missed"
+                ),
+            )
+            .at_line(at.start.line),
+        );
+    }
+
+    /// The aliased type for `name`, seen from `from`, nearest first.
+    fn alias(&self, name: &str, from: FileId) -> Option<&syn::Type> {
+        self.nearest(self.aliases.iter().filter(|a| a.name == name), from, |a| {
+            a.file
+        })
+        .map(|a| &a.ty)
+    }
+
     fn add_accounts_struct(&mut self, item: &syn::ItemStruct, file: FileId, path: &[String]) {
         let name = item.ident.to_string();
         let item_path = join(path, &name);
         let fields = item
             .fields
             .iter()
-            .filter_map(|field| account_field(field, file, &item_path))
+            .filter_map(|field| {
+                let ty = ty::classify_with(&field.ty, |alias| self.alias(alias, file));
+                account_field(field, ty, file, &item_path)
+            })
             .collect();
 
         self.accounts.push(AccountsStruct {
@@ -517,13 +604,18 @@ fn context_accounts_type(ty: &syn::Type) -> Option<String> {
 
 /// Model one field of an Accounts struct. Unnamed fields are skipped: Anchor
 /// requires named fields, so a tuple struct is not an account list.
-fn account_field(field: &syn::Field, file: FileId, struct_path: &str) -> Option<AccountField> {
+fn account_field(
+    field: &syn::Field,
+    ty: FieldType,
+    file: FileId,
+    struct_path: &str,
+) -> Option<AccountField> {
     let ident = field.ident.as_ref()?;
     let name = ident.to_string();
     Some(AccountField {
         item_path: format!("{struct_path}.{name}"),
         name,
-        ty: ty::classify(&field.ty),
+        ty,
         constraints: constraints::parse(&field.attrs, file),
         check_comment: check_comment(&field.attrs),
         location: Location::from_span(file, ident.span()),
@@ -602,6 +694,32 @@ fn derives(attrs: &[syn::Attribute], name: &str) -> bool {
         });
         found
     })
+}
+
+/// Whether a `macro_rules!` body emits Accounts structs or handlers: it
+/// derives `Accounts`, or writes a function taking a `Context`.
+fn generates_anchor_items(tokens: &proc_macro2::TokenStream) -> bool {
+    fn idents(stream: &proc_macro2::TokenStream, out: &mut BTreeSet<String>) {
+        for token in stream.clone() {
+            match token {
+                proc_macro2::TokenTree::Ident(ident) => {
+                    out.insert(ident.to_string());
+                }
+                proc_macro2::TokenTree::Group(group) => idents(&group.stream(), out),
+                _ => {}
+            }
+        }
+    }
+    let mut seen = BTreeSet::new();
+    idents(tokens, &mut seen);
+    (seen.contains("derive") && seen.contains("Accounts")) || seen.contains("Context")
+}
+
+/// The span of a path's last segment, where a macro invocation is named.
+fn name_span(path: &syn::Path) -> proc_macro2::Span {
+    path.segments
+        .last()
+        .map_or_else(proc_macro2::Span::call_site, |s| s.ident.span())
 }
 
 /// The last path segment of a type, ignoring its generic arguments.

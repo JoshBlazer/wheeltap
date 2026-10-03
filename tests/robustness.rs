@@ -140,7 +140,102 @@ fn accounts_declared_inside_a_macro_body_are_not_modelled() {
         ctx.accounts.iter().find(|a| a.name == "Hidden").is_none(),
         "a known limit: macro-generated items are invisible to a syntactic analyser"
     );
-    assert!(ctx.diagnostics.is_empty(), "invisible, but not an error");
+    assert_eq!(ctx.diagnostics.len(), 1, "invisible, but said so");
+    assert!(ctx.diagnostics[0].message.contains("generate_accounts!"));
+    assert_eq!(ctx.diagnostics[0].line, Some(2));
+}
+
+/// A macro whose *definition* is in the scan and emits Accounts structs is
+/// reported at each invocation, even when the invocation passes nothing that
+/// looks like Anchor. A macro that emits ordinary code is not reported: most
+/// item-level macros are `declare_id!` and trait impls, and a warning on each
+/// would bury the one that matters.
+#[test]
+fn invocations_of_macros_that_emit_accounts_are_reported() {
+    let dir = tree(&[
+        (
+            "macros.rs",
+            r"
+                macro_rules! accounts_for {
+                    ($name:ident) => {
+                        #[derive(Accounts)]
+                        pub struct $name<'info> { pub who: Signer<'info> }
+                    };
+                }
+                macro_rules! impl_size {
+                    ($t:ty) => { impl $t { pub const SIZE: usize = 8; } };
+                }
+            "
+            .into(),
+        ),
+        (
+            "lib.rs",
+            "declare_id!(\"Mac111\");
+accounts_for!(Hidden);
+impl_size!(Vault);"
+                .into(),
+        ),
+    ]);
+
+    let ctx = ProgramContext::scan(dir.path());
+    let messages: Vec<_> = ctx.diagnostics.iter().map(|d| d.message.as_str()).collect();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(messages[0].contains("accounts_for!"));
+}
+
+/// Field types are seen through `type` aliases, including aliases that hide
+/// the `Box` or name another alias. A cycle terminates.
+#[test]
+fn field_types_are_seen_through_aliases() {
+    use wheeltap_core::model::ty::AnchorType;
+
+    let dir = tree(&[
+        (
+            "types.rs",
+            r"
+                pub type VaultAccount<'info> = Box<Account<'info, Vault>>;
+                pub type Raw<'info> = UncheckedAccount<'info>;
+                pub type StillRaw<'info> = Raw<'info>;
+                pub type Loop = Pool;
+                pub type Pool = Loop;
+            "
+            .into(),
+        ),
+        (
+            "lib.rs",
+            r"
+                #[derive(Accounts)]
+                pub struct A<'info> {
+                    pub vault: VaultAccount<'info>,
+                    pub raw: StillRaw<'info>,
+                    pub cyclic: Loop,
+                }
+            "
+            .into(),
+        ),
+    ]);
+
+    let ctx = ProgramContext::scan(dir.path());
+    let a = ctx.accounts.iter().find(|a| a.name == "A").expect("A");
+
+    let vault = &a.field("vault").expect("vault").ty;
+    assert_eq!(
+        vault.anchor,
+        AnchorType::Account {
+            inner: "Vault".into()
+        }
+    );
+    assert!(vault.boxed);
+    assert_eq!(
+        vault.text, "VaultAccount<'info>",
+        "written as the author wrote it"
+    );
+
+    assert!(
+        a.field("raw").expect("raw").ty.is_unchecked(),
+        "through two aliases"
+    );
+    assert!(a.field("cyclic").is_some(), "a cycle terminates");
 }
 
 #[test]
