@@ -22,6 +22,7 @@ exclude = [
     "action/",
     "demo/",
     ".github/",
+    "docs/img/",
     "WHEELTAP_BUILD_SPEC.md",
 ]
 

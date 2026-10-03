@@ -84,6 +84,11 @@ where the repository can accept them. The build fails on anything at or above
 path for a codebase that already has findings, and what `upload-sarif: auto`
 decides for you.
 
+This is [PR #1](https://github.com/JoshBlazer/wheeltap/pull/1), which adds a
+withdraw instruction to the [demo vault](demo/) and forgets the signature:
+
+![WT001 reported inline on the pull request's diff, beside the code scanning alert for the same finding](docs/img/pr-annotation.png)
+
 Pinning a tag gets a prebuilt binary. Pinning a branch builds from source once
 and caches it, which needs a toolchain on the runner:
 
